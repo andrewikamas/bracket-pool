@@ -71,40 +71,14 @@ function getRegionForGame(gameId) {
   return "FinalFour";
 }
 
-// ─────────────────────────────────────────────────────────────
-// Props:
-//   initialPicks       – Record<string, 1|2>  (default {})
-//   initialTiebreaker  – string               (default "")
-//   onPicksChange      – (picks) => void      (called after each pick change)
-//   onTiebreakerChange – (value: string) => void
-//   locked             – boolean              (disables all interactions)
-// ─────────────────────────────────────────────────────────────
-export default function NCAABracket({
-  initialPicks = {},
-  initialTiebreaker = "",
-  onPicksChange,
-  onTiebreakerChange,
-  locked = false,
-} = {}) {
+export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false } = {}) {
   const [picks, setPicks] = useState(initialPicks);
   const [activeRegion, setActiveRegion] = useState("South");
   const [showFinalFour, setShowFinalFour] = useState(false);
   const [tiebreaker, setTiebreaker] = useState(initialTiebreaker);
   const [showDisappointment, setShowDisappointment] = useState(false);
+  const [showJPPride, setShowJPPride] = useState(false);
   const scrollRef = useRef(null);
-
-  // Notify parent of picks changes (skip the initial mount)
-  const isFirstRender = useRef(true);
-  const onPicksChangeRef = useRef(onPicksChange);
-  onPicksChangeRef.current = onPicksChange;
-
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    if (onPicksChangeRef.current) onPicksChangeRef.current(picks);
-  }, [picks]);
 
   // Auto-dismiss the MSU easter egg
   useEffect(() => {
@@ -113,6 +87,14 @@ export default function NCAABracket({
       return () => clearTimeout(timer);
     }
   }, [showDisappointment]);
+
+  // Auto-dismiss the Michigan easter egg
+  useEffect(() => {
+    if (showJPPride) {
+      const timer = setTimeout(() => setShowJPPride(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showJPPride]);
 
   // Build full bracket structure with 6 rounds
   const getTeamForSlot = useCallback(
@@ -123,6 +105,8 @@ export default function NCAABracket({
       }
       const prevSlot1 = slot * 2;
       const prevSlot2 = slot * 2 + 1;
+      const gameId1 = `${region[0]}R${round - 1}G${prevSlot1}`;
+      const gameId2 = `${region[0]}R${round - 1}G${prevSlot2}`;
 
       let team1 = null, seed1 = null, team2 = null, seed2 = null;
 
@@ -156,8 +140,10 @@ export default function NCAABracket({
       const next = { ...prev };
       if (next[gameId] === choice) {
         delete next[gameId];
+        // Clear downstream picks
         clearDownstream(next, gameId);
       } else {
+        // If changing pick, clear downstream
         if (next[gameId] && next[gameId] !== choice) {
           clearDownstream(next, gameId);
         }
@@ -171,16 +157,19 @@ export default function NCAABracket({
     const region = gameId[0];
     let round, slot;
 
+    // Parse R64 format (e.g. "S1") vs later rounds (e.g. "SR1G0")
     const laterParts = gameId.match(/R(\d+)G(\d+)/);
     if (laterParts) {
       round = parseInt(laterParts[1]);
       slot = parseInt(laterParts[2]);
     } else {
+      // R64 game: region letter + number (1-indexed)
       round = 0;
       slot = parseInt(gameId.slice(1)) - 1;
       if (isNaN(slot)) return;
     }
 
+    // Find the next game this feeds into
     if (round < 3) {
       const nextRound = round + 1;
       const nextSlot = Math.floor(slot / 2);
@@ -190,14 +179,22 @@ export default function NCAABracket({
         clearDownstream(pickState, nextKey);
       }
     } else if (round === 3) {
+      // Elite 8 winner feeds into Final Four
+      // South/East -> FF1, West/Midwest -> FF2
       const ffKey = (region === "S" || region === "E") ? "FF1" : "FF2";
       if (pickState[ffKey] !== undefined) {
         delete pickState[ffKey];
-        if (pickState["CHAMP"] !== undefined) delete pickState["CHAMP"];
+        // FF feeds into championship
+        if (pickState["CHAMP"] !== undefined) {
+          delete pickState["CHAMP"];
+        }
       }
     }
+    // Final Four -> Championship
     if (gameId === "FF1" || gameId === "FF2") {
-      if (pickState["CHAMP"] !== undefined) delete pickState["CHAMP"];
+      if (pickState["CHAMP"] !== undefined) {
+        delete pickState["CHAMP"];
+      }
     }
   };
 
@@ -217,15 +214,20 @@ export default function NCAABracket({
         ].map(({ team, seed, choice }) => {
           const selected = pick === choice;
           const faded = pick && !selected;
-          const canPick = !!team && !locked;
+          const canPick = !!team;
           const losingTeam = choice === 1 ? team2 : team1;
           return (
             <div
               key={choice}
               onClick={() => {
                 if (!canPick) return;
+                // MSU easter egg: picking against Michigan State
                 if (losingTeam === "Michigan St." && picks[gameId] !== choice) {
                   setShowDisappointment(true);
+                }
+                // Michigan easter egg: picking Michigan into the Final Four
+                if (team === "Michigan" && gameId === "MR3G0" && picks[gameId] !== choice) {
+                  setShowJPPride(true);
                 }
                 handlePick(gameId, choice);
               }}
@@ -301,11 +303,20 @@ export default function NCAABracket({
 
   const RegionBracket = ({ region }) => {
     const data = REGIONS[region];
-    const rounds = [0, 1, 2, 3];
+    const c = COLORS[region];
+    const rounds = [0, 1, 2, 3]; // R64, R32, S16, E8
 
     return (
       <div style={{ padding: "0 0 16px" }}>
-        <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 }} ref={scrollRef}>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            overflowX: "auto",
+            paddingBottom: 8,
+          }}
+          ref={scrollRef}
+        >
           {rounds.map((round) => {
             const gamesInRound = round === 0 ? 8 : round === 1 ? 4 : round === 2 ? 2 : 1;
             return (
@@ -327,7 +338,7 @@ export default function NCAABracket({
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "space-around",
-                    minHeight: round === 0 ? "auto" : 560,
+                    minHeight: round === 0 ? "auto" : round === 1 ? 560 : round === 2 ? 560 : 560,
                     gap: round === 0 ? 6 : 0,
                   }}
                 >
@@ -399,13 +410,18 @@ export default function NCAABracket({
         }}
       >
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
+          <h1
+            style={{
+              fontSize: 20,
+              fontWeight: 500,
+              color: "var(--color-text-primary)",
+              margin: 0,
+            }}
+          >
             2026 NCAA tournament bracket
           </h1>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "2px 0 0" }}>
-            {locked
-              ? `${totalPicks}/63 picks — read only`
-              : `Click a team to advance them. ${totalPicks}/63 picks made.`}
+            Click a team to advance them. {totalPicks}/63 picks made.
           </p>
         </div>
         <div
@@ -424,8 +440,12 @@ export default function NCAABracket({
               <button
                 key={r}
                 onClick={() => {
-                  if (r === "Final Four") setShowFinalFour(true);
-                  else { setShowFinalFour(false); setActiveRegion(r); }
+                  if (r === "Final Four") {
+                    setShowFinalFour(true);
+                  } else {
+                    setShowFinalFour(false);
+                    setActiveRegion(r);
+                  }
                 }}
                 style={{
                   padding: "6px 10px",
@@ -470,7 +490,14 @@ export default function NCAABracket({
       {/* Region bracket or Final Four */}
       {!showFinalFour ? (
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
             <div
               style={{
                 width: 12,
@@ -539,16 +566,7 @@ export default function NCAABracket({
                 else if (ff1Pick === 2) { t1 = f4.east.team; s1 = f4.east.seed; }
                 if (ff2Pick === 1) { t2 = f4.west.team; s2 = f4.west.seed; }
                 else if (ff2Pick === 2) { t2 = f4.midwest.team; s2 = f4.midwest.seed; }
-                return (
-                  <Matchup
-                    gameId="CHAMP"
-                    team1={t1}
-                    seed1={s1}
-                    team2={t2}
-                    seed2={s2}
-                    info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }}
-                  />
-                );
+                return <Matchup gameId="CHAMP" team1={t1} seed1={s1} team2={t2} seed2={s2} info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }} />;
               })()}
               {/* Tiebreaker */}
               <div style={{ marginTop: 8 }}>
@@ -558,10 +576,7 @@ export default function NCAABracket({
                 <input
                   type="number"
                   value={tiebreaker}
-                  onChange={(e) => {
-                    setTiebreaker(e.target.value);
-                    if (!locked && onTiebreakerChange) onTiebreakerChange(e.target.value);
-                  }}
+                  onChange={(e) => { if (!locked) setTiebreaker(e.target.value); }}
                   placeholder="e.g. 142"
                   disabled={locked}
                   style={{
@@ -600,12 +615,17 @@ export default function NCAABracket({
             const w = getRegionWinner(r);
             return (
               <div key={r} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: COLORS[r].border }} />
+                <div
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: COLORS[r].border,
+                  }}
+                />
                 <span>
                   {r}: {regionPicks}/15
-                  {w.team && (
-                    <span style={{ fontWeight: 500, color: COLORS[r].text }}> → {w.team}</span>
-                  )}
+                  {w.team && <span style={{ fontWeight: 500, color: COLORS[r].text }}> → {w.team}</span>}
                 </span>
               </div>
             );
@@ -679,10 +699,20 @@ export default function NCAABracket({
               <img
                 src="/disappointed-david.jpg"
                 alt="Disappointed David"
-                style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%" }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center 15%",
+                }}
               />
             </div>
-            <div style={{ textAlign: "center", animation: "pulseText 1.5s ease-in-out infinite" }}>
+            <div
+              style={{
+                textAlign: "center",
+                animation: "pulseText 1.5s ease-in-out infinite",
+              }}
+            >
               <div
                 style={{
                   fontSize: 28,
@@ -707,6 +737,90 @@ export default function NCAABracket({
                 }}
               >
                 Go Green. Go White.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Michigan / JP Easter Egg Overlay */}
+      {showJPPride && (
+        <div
+          onClick={() => setShowJPPride(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0, 0, 0, 0.82)",
+            cursor: "pointer",
+            animation: "fadeIn 0.3s ease-out",
+          }}
+        >
+          <div
+            style={{
+              animation: "slideUp 0.5s ease-out, fadeOut 4s ease-in forwards",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <div
+              style={{
+                width: 220,
+                height: 220,
+                borderRadius: "50%",
+                overflow: "hidden",
+                border: "4px solid #00274C",
+                boxShadow: "0 0 40px rgba(0, 39, 76, 0.7), 0 0 80px rgba(255, 203, 5, 0.3)",
+                animation: "headShake 0.8s ease-in-out 0.4s",
+              }}
+            >
+              <img
+                src="/jp-proud.jpg"
+                alt="JP is proud"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center 20%",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                textAlign: "center",
+                animation: "pulseText 1.5s ease-in-out infinite",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 500,
+                  color: "#FFCB05",
+                  textShadow: "0 2px 20px rgba(0, 39, 76, 0.9)",
+                  letterSpacing: -0.5,
+                }}
+              >
+                JP is proud of you!
+              </div>
+              <div
+                style={{
+                  fontSize: 14,
+                  color: "#FFCB05",
+                  fontWeight: 500,
+                  marginTop: 6,
+                  background: "#00274C",
+                  display: "inline-block",
+                  padding: "4px 14px",
+                  borderRadius: 20,
+                }}
+              >
+                Go Blue! 〽️
               </div>
             </div>
           </div>
