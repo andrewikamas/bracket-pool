@@ -24,7 +24,7 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
 
   const lockTime = lockSetting?.value ? new Date(lockSetting.value as string) : null
   const isLocked = lockTime ? new Date() > lockTime : false
-  const isOwner = authUser?.data?.user?.id === bracket.user_id
+  const isOwner = authUser?.user?.id === bracket.user_id
 
   // Hide picks until lock time — unless you're the owner (use edit page for that)
   const picks: Record<string, number> = {}
