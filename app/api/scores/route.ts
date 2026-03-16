@@ -156,7 +156,7 @@ export async function GET(request: Request) {
       .select('game_id, round, region, team1, team2, winner, status, espn_event_id')
 
     if (dbError || !dbGames) {
-      return NextResponse.json({ error: 'Could not load tournament games from DB' }, { status: 500 })
+      return NextResponse.json({ error: "Could not load tournament games from DB", detail: dbError?.message ?? "unknown", hint: dbError?.hint ?? null, code: dbError?.code ?? null }, { status: 500 })
     }
 
     // Build espn_event_id → game_id index
