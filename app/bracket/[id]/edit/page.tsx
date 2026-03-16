@@ -11,7 +11,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [isLocked, setIsLocked] = useState(false)
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>()
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const supabase = createClient()
 
   useEffect(() => {
