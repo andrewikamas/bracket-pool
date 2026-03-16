@@ -1,7 +1,8 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import NCAABracket from '@/components/NCAABracket'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const NCAABracket = require('@/components/NCAABracket').default as any
 
 export default function EditBracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: bracketId } = React.use(params)
