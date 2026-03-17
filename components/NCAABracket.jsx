@@ -291,8 +291,8 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
             }}
           >
             <span>{info.date}</span>
-            {info.time !== "TBD" && <span>· {info.time}</span>}
-            {info.tv !== "TBD" && (
+            {(info.time !== "TBD" || info.game_time) && <span>· {info.game_time ?? info.time}</span>}
+            {(info.tv && info.tv !== "TBD") && (
               <span style={{ fontWeight: 500, color: "var(--color-text-secondary)" }}>· {info.tv}</span>
             )}
             <span>· {info.venue}</span>
