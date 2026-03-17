@@ -47,7 +47,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
       // Lock
       if (lockData?.value) setIsLocked(new Date() > new Date(lockData.value as string))
 
-      // Game schedule from ESPN sync
+      // Game schedule — first use whatever's in Supabase (may be empty)
       const schedMap: Record<string, any> = {}
       for (const g of scheduleData ?? []) {
         if (g.game_id) schedMap[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
@@ -55,6 +55,72 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
       setGameSchedule(schedMap)
 
       setLoading(false)
+
+      // Then fetch ESPN directly from the browser (bypasses server IP blocking)
+      // and merge in real TV/time/venue data
+      fetchESPNClientSide(schedMap)
+    }
+
+    const fetchESPNClientSide = async (existing: Record<string, any>) => {
+      // R64 game id → ESPN team name for matching
+      const TEAM_MAP: Record<string, string> = {
+        'S1': 'Florida', 'S2': 'Clemson', 'S3': 'Vanderbilt', 'S4': 'Nebraska',
+        'S5': 'North Carolina', 'S6': 'Illinois', 'S7': "Saint Mary's", 'S8': 'Houston',
+        'E1': 'Duke', 'E2': 'Ohio State', 'E3': "St. John's", 'E4': 'Kansas',
+        'E5': 'Louisville', 'E6': 'Michigan State', 'E7': 'UCLA', 'E8': 'UConn',
+        'W1': 'Arizona', 'W2': 'Villanova', 'W3': 'Wisconsin', 'W4': 'Arkansas',
+        'W5': 'BYU', 'W6': 'Gonzaga', 'W7': 'Miami', 'W8': 'Purdue',
+        'M1': 'Michigan', 'M2': 'Georgia', 'M3': 'Texas Tech', 'M4': 'Alabama',
+        'M5': 'Tennessee', 'M6': 'Virginia', 'M7': 'Kentucky', 'M8': 'Iowa State',
+      }
+
+      try {
+        const dates = ['20260319', '20260320']
+        const merged = { ...existing }
+
+        for (const date of dates) {
+          const res = await fetch(
+            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
+          )
+          if (!res.ok) continue
+          const data = await res.json()
+          const events = (data.events ?? []).filter((e: any) => e.tournamentId === 22)
+
+          for (const event of events) {
+            const comp = event.competitions?.[0]
+            if (!comp) continue
+            const teamNames = comp.competitors.map((c: any) => c.team.location as string)
+            const detail = event.status?.type?.detail ?? ''
+            const timeMatch = detail.match(/at (.+)$/)
+            const gameTime = timeMatch ? timeMatch[1] : 'TBD'
+            const tv = event.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? 'TBD'
+            const venue = comp.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : 'TBD'
+
+            // Match to our game_id by team name
+            for (const [gameId, teamName] of Object.entries(TEAM_MAP)) {
+              if (teamNames.some((t: string) => t.toLowerCase().includes(teamName.toLowerCase()))) {
+                merged[gameId] = { tv, game_time: gameTime, venue }
+                break
+              }
+            }
+          }
+        }
+
+        setGameSchedule(merged)
+
+        // Write back to Supabase so future server renders have the data
+        const updates = Object.entries(merged).map(([game_id, info]) => ({
+          game_id, tv: info.tv, game_time: info.game_time, venue: info.venue
+        }))
+        await fetch('/api/scores/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates }),
+        }).catch(() => {}) // fire and forget
+
+      } catch (e) {
+        console.warn('ESPN client fetch failed:', e)
+      }
     }
     init()
   }, [bracketId])
