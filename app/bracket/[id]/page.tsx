@@ -6,32 +6,40 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ data: bracket }, { data: picksData }, { data: lockSetting }, { data: authUser }] = await Promise.all([
+  const [
+    { data: bracket },
+    { data: picksData },
+    { data: lockSetting },
+    { data: authUser },
+    { data: scheduleData },
+  ] = await Promise.all([
     supabase.from('brackets').select('id, name, tiebreaker, user_id, profiles(display_name)').eq('id', id).single(),
     supabase.from('picks').select('game_id, winner_choice').eq('bracket_id', id),
     supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     supabase.auth.getUser(),
+    supabase.from('tournament_games').select('game_id, tv, game_time, venue').eq('round', 0),
   ])
 
-  if (!bracket) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui', color: '#9ca3af' }}>
-        Bracket not found.{' '}
-        <a href="/" style={{ color: '#2563eb' }}>Back to leaderboard</a>
-      </div>
-    )
-  }
+  if (!bracket) return (
+    <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui', color: '#9ca3af' }}>
+      Bracket not found. <a href="/" style={{ color: '#2563eb' }}>Back to leaderboard</a>
+    </div>
+  )
 
   const lockTime = lockSetting?.value ? new Date(lockSetting.value as string) : null
   const isLocked = lockTime ? new Date() > lockTime : false
   const isOwner = authUser?.user?.id === bracket.user_id
 
-  // Hide picks until lock time — unless you're the owner (use edit page for that)
+  // Hide picks until lock time
   const picks: Record<string, number> = {}
   if (isLocked) {
-    for (const p of picksData ?? []) {
-      picks[p.game_id] = p.winner_choice
-    }
+    for (const p of picksData ?? []) picks[p.game_id] = p.winner_choice
+  }
+
+  // Build game schedule from ESPN sync data
+  const gameSchedule: Record<string, any> = {}
+  for (const g of scheduleData ?? []) {
+    if (g.game_id) gameSchedule[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
   }
 
   return (
@@ -42,27 +50,18 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
         <span style={{ fontWeight: 500 }}>{bracket.name}</span>
         <span style={{ color: '#9ca3af', fontSize: 13 }}>by {(bracket.profiles as any)?.display_name}</span>
         {isOwner && !isLocked && (
-          <a
-            href={`/bracket/${id}/edit`}
-            style={{ marginLeft: 'auto', color: '#2563eb', fontSize: 13, textDecoration: 'none' }}
-          >
+          <a href={`/bracket/${id}/edit`} style={{ marginLeft: 'auto', color: '#2563eb', fontSize: 13, textDecoration: 'none' }}>
             Edit your picks →
           </a>
         )}
       </div>
 
       {!isLocked && (
-        <div style={{
-          background: '#fef3c7',
-          border: '1px solid #f59e0b',
-          borderRadius: 8,
-          padding: '12px 16px',
-          marginBottom: 16,
-          fontSize: 14,
-          color: '#92400e',
-        }}>
+        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 14, color: '#92400e' }}>
           🔒 Picks are hidden until the tournament starts on Thu Mar 19.
-          {isOwner && <span> <a href={`/bracket/${id}/edit`} style={{ color: '#92400e', fontWeight: 600 }}>Edit your picks →</a></span>}
+          {isOwner && (
+            <span> <a href={`/bracket/${id}/edit`} style={{ color: '#92400e', fontWeight: 600 }}>Edit your picks →</a></span>
+          )}
         </div>
       )}
 
@@ -70,6 +69,7 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
         initialPicks={picks}
         initialTiebreaker={isLocked ? bracket.tiebreaker?.toString() ?? '' : ''}
         locked={true}
+        gameSchedule={gameSchedule}
       />
     </div>
   )

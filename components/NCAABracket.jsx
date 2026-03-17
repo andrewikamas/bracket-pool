@@ -71,7 +71,9 @@ function getRegionForGame(gameId) {
   return "FinalFour";
 }
 
-export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false } = {}) {
+export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false, gameSchedule = {}, onPicksChange = null, onTiebreakerChange = null } = {}) {
+  // gameSchedule: Record<gameId, { time, tv, venue, game_time }>
+  // Passed in from the server — overrides the static TBD values in REGIONS
   const [picks, setPicks] = useState(initialPicks);
   const [activeRegion, setActiveRegion] = useState("South");
   const [showFinalFour, setShowFinalFour] = useState(false);
@@ -140,15 +142,14 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
       const next = { ...prev };
       if (next[gameId] === choice) {
         delete next[gameId];
-        // Clear downstream picks
         clearDownstream(next, gameId);
       } else {
-        // If changing pick, clear downstream
         if (next[gameId] && next[gameId] !== choice) {
           clearDownstream(next, gameId);
         }
         next[gameId] = choice;
       }
+      if (onPicksChange) setTimeout(() => onPicksChange(next), 0);
       return next;
     });
   };
@@ -349,7 +350,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                       gameId = g.id;
                       team1 = g.team1; seed1 = g.seed1;
                       team2 = g.team2; seed2 = g.seed2;
-                      info = { date: g.date, time: g.time, tv: g.tv, venue: g.venue };
+                      const sched = gameSchedule[g.id];
+                      info = {
+                        date:  g.date,
+                        time:  sched?.game_time ?? sched?.time ?? g.time,
+                        tv:    sched?.tv   ?? g.tv,
+                        venue: sched?.venue ?? g.venue,
+                      };
                     } else {
                       gameId = `${region[0]}R${round}G${slot}`;
                       const t = getTeamForSlot(region, round, slot);
@@ -576,7 +583,12 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 <input
                   type="number"
                   value={tiebreaker}
-                  onChange={(e) => { if (!locked) setTiebreaker(e.target.value); }}
+                  onChange={(e) => {
+                    if (!locked) {
+                      setTiebreaker(e.target.value);
+                      if (onTiebreakerChange) onTiebreakerChange(e.target.value);
+                    }
+                  }}
                   placeholder="e.g. 142"
                   disabled={locked}
                   style={{
