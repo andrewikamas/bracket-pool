@@ -30,6 +30,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
+  ESPN_SCOREBOARD,
   TOURNAMENT_DATES,
   R64_GAME_MAP,
   nameMatches,
@@ -172,6 +173,24 @@ export async function GET(request: Request) {
     // Fetch ESPN
     const dates = getDatesToFetch(url)
     const events = await fetchESPNDays(dates)
+
+    // Debug: log raw ESPN response for first date if empty
+    if (events.length === 0) {
+      try {
+        const testUrl = `${ESPN_SCOREBOARD}?dates=${dates[0]}&groups=100&limit=50`
+        const testRes = await fetch(testUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Referer': 'https://www.espn.com/',
+          },
+        })
+        const testData = await testRes.json()
+        console.log('ESPN debug - status:', testRes.status, 'events count:', testData?.events?.length ?? 0, 'keys:', Object.keys(testData))
+      } catch (e) {
+        console.log('ESPN debug fetch failed:', e)
+      }
+    }
 
     // ── Match events and build update payloads ────────────────────────────────
 

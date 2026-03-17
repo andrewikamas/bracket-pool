@@ -135,7 +135,14 @@ export function nameMatches(espnName: string, searchTerms: string[]): boolean {
 export async function fetchESPNDay(dateStr: string): Promise<ESPNEvent[]> {
   try {
     const url = `${ESPN_SCOREBOARD}?dates=${dateStr}&groups=100&limit=50`
-    const res = await fetch(url, { next: { revalidate: 60 } })
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.espn.com/',
+      },
+      next: { revalidate: 60 },
+    })
     if (!res.ok) return []
     const data = await res.json()
     return ((data.events ?? []) as ESPNEvent[]).filter(e => e.tournamentId === 22)
