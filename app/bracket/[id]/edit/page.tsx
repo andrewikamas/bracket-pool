@@ -62,16 +62,47 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
     }
 
     const fetchESPNClientSide = async (existing: Record<string, any>) => {
-      // R64 game id → ESPN team name for matching
-      const TEAM_MAP: Record<string, string> = {
-        'S1': 'Florida', 'S2': 'Clemson', 'S3': 'Vanderbilt', 'S4': 'Nebraska',
-        'S5': 'North Carolina', 'S6': 'Illinois', 'S7': "Saint Mary's", 'S8': 'Houston',
-        'E1': 'Duke', 'E2': 'Ohio State', 'E3': "St. John's", 'E4': 'Kansas',
-        'E5': 'Louisville', 'E6': 'Michigan State', 'E7': 'UCLA', 'E8': 'UConn',
-        'W1': 'Arizona', 'W2': 'Villanova', 'W3': 'Wisconsin', 'W4': 'Arkansas',
-        'W5': 'BYU', 'W6': 'Gonzaga', 'W7': 'Miami', 'W8': 'Purdue',
-        'M1': 'Michigan', 'M2': 'Georgia', 'M3': 'Texas Tech', 'M4': 'Alabama',
-        'M5': 'Tennessee', 'M6': 'Virginia', 'M7': 'Kentucky', 'M8': 'Iowa State',
+      // Direct ESPN event ID → our game_id map
+      // IDs sourced from actual ESPN API responses for 2026 tournament
+      const ESPN_ID_MAP: Record<string, string> = {
+        // Mar 19 games
+        '401856478': 'E1',  // Duke vs Siena
+        '401856479': 'E2',  // Ohio State vs TCU
+        '401856482': 'E5',  // Louisville vs South Florida
+        '401856483': 'E6',  // Michigan State vs NDSU
+        '401856488': 'S3',  // Vanderbilt vs McNeese
+        '401856489': 'S4',  // Nebraska vs Troy
+        '401856490': 'S5',  // North Carolina vs VCU
+        '401856491': 'S6',  // Illinois vs Penn
+        '401856492': 'S7',  // Saint Mary's vs Texas A&M
+        '401856493': 'S8',  // Houston vs Idaho
+        '401856480': 'W3',  // Wisconsin vs High Point
+        '401856481': 'W4',  // Arkansas vs Hawaii
+        '401856484': 'W5',  // BYU vs TBD
+        '401856485': 'W6',  // Gonzaga vs Kennesaw State
+        '401856486': 'M1',  // Michigan vs TBD
+        '401856487': 'M2',  // Georgia vs Saint Louis
+        // Mar 20 games (IDs will be populated when ESPN returns them)
+      }
+
+      // Fallback: precise team name matching (word-boundary safe)
+      const TEAM_MAP: Record<string, string[]> = {
+        'S1': ['Florida Gators', 'Florida'],
+        'S2': ['Clemson'],
+        'W1': ['Arizona Wildcats', 'Arizona'],
+        'W2': ['Villanova'],
+        'W7': ['Miami Hurricanes', 'Miami (FL)', 'Miami FL'],
+        'W8': ['Purdue'],
+        'M3': ['Texas Tech'],
+        'M4': ['Alabama'],
+        'M5': ['Tennessee Volunteers', 'Tennessee'],
+        'M6': ['Virginia Cavaliers', 'Virginia'],
+        'M7': ['Kentucky'],
+        'M8': ['Iowa State'],
+        'E3': ["St. John's", "Saint John's"],
+        'E4': ['Kansas'],
+        'E7': ['UCLA'],
+        'E8': ['UConn', 'Connecticut'],
       }
 
       try {
@@ -96,9 +127,26 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
             const tv = event.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? 'TBD'
             const venue = comp.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : 'TBD'
 
-            // Match to our game_id by team name
-            for (const [gameId, teamName] of Object.entries(TEAM_MAP)) {
-              if (teamNames.some((t: string) => t.toLowerCase().includes(teamName.toLowerCase()))) {
+            // 1. Try direct ESPN event ID lookup first (exact, no ambiguity)
+            const gameIdFromId = ESPN_ID_MAP[event.id]
+            if (gameIdFromId) {
+              merged[gameIdFromId] = { tv, game_time: gameTime, venue }
+              continue
+            }
+
+            // 2. Fallback: precise name matching for Mar 20 games not yet in ID map
+            for (const [gameId, nameOptions] of Object.entries(TEAM_MAP)) {
+              if (merged[gameId]) continue // already matched
+              const matched = nameOptions.some(name =>
+                teamNames.some((t: string) => {
+                  const tl = t.toLowerCase()
+                  const nl = name.toLowerCase()
+                  // Exact match or the ESPN name IS the search name (not just contains)
+                  return tl === nl || tl === nl + ' wildcats' || tl === nl + ' gators' ||
+                    (nl.length > 8 && tl.includes(nl))
+                })
+              )
+              if (matched) {
                 merged[gameId] = { tv, game_time: gameTime, venue }
                 break
               }
