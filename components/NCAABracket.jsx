@@ -5,14 +5,14 @@ import { useState, useCallback, useRef, useEffect } from "react";
 const REGIONS = {
   South: {
     games: [
-      { id: "S1", seed1: 1, team1: "Florida", seed2: 16, team2: "PV A&M/Lehigh", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
-      { id: "S2", seed1: 8, team1: "Clemson", seed2: 9, team2: "Iowa", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
-      { id: "S3", seed1: 5, team1: "Vanderbilt", seed2: 12, team2: "McNeese", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Tampa, FL" },
-      { id: "S4", seed1: 4, team1: "Nebraska", seed2: 13, team2: "Troy", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Tampa, FL" },
+      { id: "S1", seed1: 1, team1: "Florida", seed2: 16, team2: "PV A&M/Lehigh", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
+      { id: "S2", seed1: 8, team1: "Clemson", seed2: 9, team2: "Iowa", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
+      { id: "S3", seed1: 5, team1: "Vanderbilt", seed2: 12, team2: "McNeese", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
+      { id: "S4", seed1: 4, team1: "Nebraska", seed2: 13, team2: "Troy", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
       { id: "S5", seed1: 6, team1: "North Carolina", seed2: 11, team2: "VCU", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
       { id: "S6", seed1: 3, team1: "Illinois", seed2: 14, team2: "Penn", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
-      { id: "S7", seed1: 7, team1: "Saint Mary's", seed2: 10, team2: "Texas A&M", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Tampa, FL" },
-      { id: "S8", seed1: 2, team1: "Houston", seed2: 15, team2: "Idaho", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Tampa, FL" },
+      { id: "S7", seed1: 7, team1: "Saint Mary's", seed2: 10, team2: "Texas A&M", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
+      { id: "S8", seed1: 2, team1: "Houston", seed2: 15, team2: "Idaho", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Oklahoma City, OK" },
     ],
   },
   East: {
@@ -21,8 +21,8 @@ const REGIONS = {
       { id: "E2", seed1: 8, team1: "Ohio St.", seed2: 9, team2: "TCU", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
       { id: "E3", seed1: 5, team1: "St. John's", seed2: 12, team2: "Northern Iowa", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Philadelphia, PA" },
       { id: "E4", seed1: 4, team1: "Kansas", seed2: 13, team2: "Cal Baptist", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Philadelphia, PA" },
-      { id: "E5", seed1: 6, team1: "Louisville", seed2: 11, team2: "South Florida", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
-      { id: "E6", seed1: 3, team1: "Michigan St.", seed2: 14, team2: "N. Dakota St.", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Greenville, SC" },
+      { id: "E5", seed1: 6, team1: "Louisville", seed2: 11, team2: "South Florida", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Buffalo, NY" },
+      { id: "E6", seed1: 3, team1: "Michigan St.", seed2: 14, team2: "N. Dakota St.", date: "Thu Mar 19", time: "TBD", tv: "TBD", venue: "Buffalo, NY" },
       { id: "E7", seed1: 7, team1: "UCLA", seed2: 10, team2: "UCF", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Philadelphia, PA" },
       { id: "E8", seed1: 2, team1: "UConn", seed2: 15, team2: "Furman", date: "Fri Mar 20", time: "TBD", tv: "TBD", venue: "Philadelphia, PA" },
     ],
