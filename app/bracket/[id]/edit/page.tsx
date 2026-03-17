@@ -155,6 +155,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
         }
 
         setGameSchedule(merged)
+        console.log('ESPN gameSchedule merged:', Object.keys(merged).length, 'games', merged)
 
         // Write back to Supabase so future server renders have the data
         const updates = Object.entries(merged).map(([game_id, info]) => ({
