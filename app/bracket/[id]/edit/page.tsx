@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import NCAABracket from '@/components/NCAABracket'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Bracket = NCAABracket as any
 
 export default function EditBracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: bracketId } = React.use(params)
@@ -142,7 +144,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      <NCAABracket
+      <Bracket
         initialPicks={initialPicks}
         initialTiebreaker={bracket?.tiebreaker?.toString() ?? ''}
         locked={isLocked}
