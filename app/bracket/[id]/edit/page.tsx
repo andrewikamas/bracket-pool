@@ -130,6 +130,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
             // 1. Try direct ESPN event ID lookup first (exact, no ambiguity)
             const gameIdFromId = ESPN_ID_MAP[event.id]
             if (gameIdFromId) {
+              console.log(`ESPN match ${event.id} → ${gameIdFromId}`, { tv, gameTime, venue, rawBroadcast: event.broadcast, rawGeoBroadcasts: event.geoBroadcasts })
               merged[gameIdFromId] = { tv, game_time: gameTime, venue }
               continue
             }
