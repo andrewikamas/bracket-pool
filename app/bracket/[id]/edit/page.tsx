@@ -82,23 +82,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
         '401856491': 'S6',  // Illinois vs Penn
         '401856492': 'S7',  // Saint Mary's vs Texas A&M
         '401856493': 'S8',  // Houston vs Idaho
-        // Mar 20 games (sequential pattern — 494-509)
-        '401856494': 'W1',  // Arizona vs LIU
-        '401856495': 'W2',  // Villanova vs Utah St.
-        '401856496': 'S1',  // Florida vs PV A&M/Lehigh
-        '401856497': 'S2',  // Clemson vs Iowa
-        '401856498': 'E3',  // St. John's vs Northern Iowa
-        '401856499': 'E4',  // Kansas vs Cal Baptist
-        '401856500': 'W7',  // Miami (FL) vs Missouri
-        '401856501': 'W8',  // Purdue vs Queens
-        '401856502': 'M3',  // Texas Tech vs Akron
-        '401856503': 'M4',  // Alabama vs Hofstra
-        '401856504': 'E7',  // UCLA vs UCF
-        '401856505': 'E8',  // UConn vs Furman
-        '401856506': 'M5',  // Tennessee vs SMU/Miami (OH)
-        '401856507': 'M6',  // Virginia vs Wright St.
-        '401856508': 'M7',  // Kentucky vs Santa Clara
-        '401856509': 'M8',  // Iowa St. vs Tennessee St.
+        // Mar 20 games — IDs unconfirmed, name matching handles these
       }
 
       // Fallback: exact ESPN team.location matching for Mar 20 games not yet in ID map
