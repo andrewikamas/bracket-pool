@@ -116,6 +116,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
           if (!res.ok) continue
           const data = await res.json()
           const events = (data.events ?? []).filter((e: any) => e.tournamentId === 22)
+          console.log('ESPN raw first event keys:', events[0] ? Object.keys(events[0]) : 'no events', 'comp:', events[0]?.competitions?.length, 'geoBroadcasts:', events[0]?.geoBroadcasts)
 
           for (const event of events) {
             const comp = event.competitions?.[0]
