@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import TVScheduleButton from '@/components/TVScheduleButton'
 
 interface LeaderboardEntry {
   bracket_id: string
@@ -12,21 +13,20 @@ interface LeaderboardEntry {
 async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const supabase = await createClient()
 
-  const [{ data: settingsData }, { data: brackets }, { data: allPicks }, { data: games }] =
+  const [{ data: brackets }, { data: games }, { data: allPicks }, { data: scoringSetting }] =
     await Promise.all([
-      supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
-      supabase.from('brackets').select('id, name, tiebreaker, user_id, profiles(display_name)'),
+      supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
+      supabase.from('tournament_games').select('game_id, round, winner'),
       supabase.from('picks').select('bracket_id, game_id, winner_choice'),
-      supabase.from('tournament_games').select('game_id, round, winner').not('winner', 'is', null),
+      supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
     ])
 
-  if (!brackets) return []
-
-  const scoring: Record<string, number> = (settingsData?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
+  const scoring: Record<string, number> =
+    (scoringSetting?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
   const results = new Map((games ?? []).map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
   const picks = allPicks ?? []
 
-  const entries: LeaderboardEntry[] = brackets.map((b) => {
+  const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
     const bracketPicks = picks.filter((p) => p.bracket_id === b.id)
     let score = 0
     for (const pick of bracketPicks) {
@@ -47,7 +47,6 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
   return entries.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    // Tiebreaker: closest to actual (unknown yet, so just sort ascending)
     return (a.tiebreaker ?? 999) - (b.tiebreaker ?? 999)
   })
 }
@@ -64,21 +63,24 @@ export default async function LeaderboardPage() {
             Tournament starts Thu Mar 19 · Scores update as games complete
           </p>
         </div>
-        <a
-          href="/my-brackets"
-          style={{
-            padding: '9px 18px',
-            background: '#2563eb',
-            color: 'white',
-            borderRadius: 8,
-            textDecoration: 'none',
-            fontWeight: 500,
-            fontSize: 14,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          My Brackets →
-        </a>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <TVScheduleButton />
+          <a
+            href="/my-brackets"
+            style={{
+              padding: '9px 18px',
+              background: '#2563eb',
+              color: 'white',
+              borderRadius: 8,
+              textDecoration: 'none',
+              fontWeight: 500,
+              fontSize: 14,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            My Brackets →
+          </a>
+        </div>
       </div>
 
       {leaderboard.length === 0 ? (
