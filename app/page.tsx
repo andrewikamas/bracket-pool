@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
+import AICommentary from '@/components/AICommentary'
 
 interface LeaderboardEntry {
   bracket_id: string
@@ -92,45 +93,69 @@ export default async function LeaderboardPage() {
           </div>
         </div>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-              {['#', 'Bracket', 'Player', 'Score', 'Picks'].map((h, i) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: '8px 12px',
-                    fontWeight: 600,
-                    color: '#374151',
-                    textAlign: i >= 3 ? 'right' : 'left',
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {leaderboard.map((entry, i) => (
-              <tr key={entry.bracket_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{i + 1}</td>
-                <td style={{ padding: '11px 12px' }}>
-                  <a
-                    href={`/bracket/${entry.bracket_id}`}
-                    style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
+        <>
+          {/* AI Commentary card — sits above the table */}
+          <AICommentary leaderboard={leaderboard} />
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                {['#', 'Bracket', 'Player', 'Score', 'Picks'].map((h, i) => (
+                  <th
+                    key={h}
+                    style={{
+                      padding: '8px 12px',
+                      fontWeight: 600,
+                      color: '#374151',
+                      textAlign: i >= 3 ? 'right' : 'left',
+                    }}
                   >
-                    {entry.bracket_name}
-                  </a>
-                </td>
-                <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
-                <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
-                <td style={{ padding: '11px 12px', textAlign: 'right', color: '#9ca3af' }}>
-                  {entry.picks_made}/63
-                </td>
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {leaderboard.map((entry, i) => {
+                const incomplete = entry.picks_made < 63
+                return (
+                  <tr key={entry.bracket_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{i + 1}</td>
+                    <td style={{ padding: '11px 12px' }}>
+                      <a
+                        href={`/bracket/${entry.bracket_id}`}
+                        style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
+                      >
+                        {entry.bracket_name}
+                      </a>
+                    </td>
+                    <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
+                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
+                    <td style={{ padding: '11px 12px', textAlign: 'right' }}>
+                      {incomplete ? (
+                        <span
+                          title={`${63 - entry.picks_made} picks missing`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            color: '#d97706',
+                            fontWeight: 600,
+                            fontSize: 13,
+                          }}
+                        >
+                          ⚠ {entry.picks_made}/63
+                        </span>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>63/63</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </>
       )}
 
       <p style={{ fontSize: 11, color: '#d1d5db', marginTop: 32, textAlign: 'center' }}>
