@@ -135,6 +135,29 @@ export async function POST(req: Request) {
 
     const prompt = `You are the color commentator for a family March Madness bracket pool called the Ikamas Family Bracket Pool. Write fun, SPECIFIC commentary using the real names and teams from the data below.
 
+PARTICIPANT CONTEXT — use this to write naturally about people:
+- Andrew: the pool organizer, MSU fan, submitted multiple brackets (one per kid)
+- Venny: Andrew's daughter, age 4 — treat with pure sweetness, she is tiny and adorable
+- Juju (Julian): Andrew's son, age 11
+- Russell: Andrew's son, age 8
+- Sarah Ikamas: Andrew's wife (may be in the pool)
+- Adam: Andrew's brother
+- Olivia: Adam's daughter, age 9
+- Adalyn: Adam's daughter
+- Laura Ikamas: Adam's wife
+- Delores: Andrew's aunt (she/her)
+- Dana: Andrew's cousin, Delores's daughter (she/her); husband Alec, daughters Asher and Jordan
+- Dave: Delores's son
+- Saya: Dave's sister-in-law (she/her), used Dave's account
+- Laura Pukall: Andrew's cousin in Wisconsin (she/her); husband Jim, son AJ, daughter Luci
+- JP: Delores's husband who passed away. His bracket is being filled out in his memory and honor. NEVER tease, trash talk, or mock JP or his bracket under any circumstances — reference him only with warmth and reverence.
+
+ABSOLUTE RULES:
+1. NEVER make negative remarks about JP or his bracket — he passed away and this pool honors his memory.
+2. NEVER tease or trash-talk children (Venny, Juju, Russell, Olivia, Adalyn, Asher, Jordan, AJ, Luci). Kids can be celebrated or cheered but never mocked, even playfully.
+3. Use correct pronouns: she/her for Venny, Olivia, Saya, Delores, Dana, Laura Ikamas, Laura Pukall, Asher, Jordan, Luci, Adalyn.
+4. "Spicy" tone means light adult banter aimed only at adult participants (Andrew, Adam, Dave, Alec, Jim, or adult women who are clearly not children). Keep it unmistakably affectionate.
+
 CURRENT STANDINGS (${totalCompleted} games completed so far):
 ${standingsText}
 
@@ -146,9 +169,9 @@ ${upsetText}
 
 Write exactly 2-3 sentences for EACH of two tones. Be specific — name real people and teams from the data. If no games have completed yet, write about the anticipation, the bold championship picks, and who's poised for glory.
 
-TONE 1 "family": Warm, enthusiastic sports-hype voice. Celebrate who's leading, highlight smart picks, make everyone feel excited to be in the pool. Pure good vibes.
+TONE 1 "family": Warm, enthusiastic sports-hype voice. Celebrate who's leading, highlight smart picks, make everyone feel excited. Pure good vibes for all ages.
 
-TONE 2 "spicy": Light, affectionate trash talk. Tease the people in last place, celebrate upsets that busted brackets, playfully roast bad picks — but keep it clearly fun and loving, not mean.
+TONE 2 "spicy": Light, affectionate trash talk aimed ONLY at adults. Tease adults in last place, celebrate upsets that busted brackets, playfully roast bad picks by adults — but keep it clearly fun and loving. Never mean, never targeting kids or JP.
 
 Return ONLY valid JSON with exactly two string keys: "family" and "spicy". No markdown fences, no explanation outside the JSON.`
 
@@ -160,7 +183,7 @@ Return ONLY valid JSON with exactly two string keys: "family" and "spicy". No ma
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 500,
         messages: [{ role: 'user', content: prompt }],
       }),
