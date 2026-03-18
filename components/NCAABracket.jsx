@@ -63,6 +63,14 @@ const COLORS = {
   FinalFour: { bg: "#FAEEDA", border: "#854F0B", text: "#633806", light: "#FAC775" },
 };
 
+// ESPN event IDs for R64 games — Thursday games confirmed; Friday IDs TBD (will resolve via team matching)
+const ESPN_GAME_IDS = {
+  E1: "401856478", E2: "401856479", W3: "401856480", W4: "401856481",
+  E5: "401856482", E6: "401856483", W5: "401856484", W6: "401856485",
+  M1: "401856486", M2: "401856487", S3: "401856488", S4: "401856489",
+  S5: "401856490", S6: "401856491", S7: "401856492", S8: "401856493",
+};
+
 function getRegionForGame(gameId) {
   if (gameId.startsWith("S")) return "South";
   if (gameId.startsWith("W")) return "West";
@@ -80,10 +88,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
   const [tiebreaker, setTiebreaker] = useState(initialTiebreaker);
   const [showDisappointment, setShowDisappointment] = useState(false);
   const [showJPPride, setShowJPPride] = useState(false);
-  const [showPukallCheers, setShowPukallCheers] = useState(false);
-  const [showMSUChamp, setShowMSUChamp] = useState(false);
-  const msuVideoRef = useRef(null);
-  const msuAudioRef = useRef(null);
   const scrollRef = useRef(null);
 
   // Auto-dismiss the MSU easter egg
@@ -102,34 +106,63 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
     }
   }, [showJPPride]);
 
-  // Auto-dismiss the Wisconsin/Pukall easter egg
+  // Responsive width tracking
+  const [windowWidth, setWindowWidth] = useState(
+    () => (typeof window !== "undefined" ? window.innerWidth : 1024)
+  );
   useEffect(() => {
-    if (showPukallCheers) {
-      const timer = setTimeout(() => setShowPukallCheers(false), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [showPukallCheers]);
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = windowWidth < 480;
 
-  // MSU Championship easter egg — play video + One Shining Moment for 6s
+  // Auto-fetch ESPN schedule so TV/time/venue work without a parent passing gameSchedule
+  const [fetchedSchedule, setFetchedSchedule] = useState({});
   useEffect(() => {
-    if (showMSUChamp) {
-      // Start both video and audio together
-      if (msuVideoRef.current) {
-        msuVideoRef.current.currentTime = 0;
-        msuVideoRef.current.play().catch(() => {});
+    const espnToGame = Object.fromEntries(
+      Object.entries(ESPN_GAME_IDS).map(([g, e]) => [e, g])
+    );
+    const run = async () => {
+      try {
+        const results = {};
+        for (const date of ["20260319", "20260320"]) {
+          const res = await fetch(
+            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
+          );
+          if (!res.ok) continue;
+          const data = await res.json();
+          const events = (data.events ?? []).filter(
+            (e) =>
+              e.tournamentId === 22 ||
+              e.competitions?.[0]?.notes?.[0]?.headline?.includes("NCAA Men's Basketball Championship")
+          );
+          for (const event of events) {
+            const gameId = espnToGame[event.id];
+            if (!gameId) continue;
+            const comp = event.competitions?.[0];
+            const detail = event.status?.type?.detail ?? "";
+            const timeMatch = detail.match(/at (.+)$/);
+            results[gameId] = {
+              // geoBroadcasts lives on competitions[0], not on the event root
+              tv: comp?.geoBroadcasts?.[0]?.media?.shortName ?? null,
+              game_time: timeMatch ? timeMatch[1] : null,
+              venue: comp?.venue
+                ? `${comp.venue.fullName}, ${comp.venue.address?.city}, ${comp.venue.address?.state}`
+                : null,
+            };
+          }
+        }
+        setFetchedSchedule(results);
+      } catch (e) {
+        console.warn("ESPN schedule fetch failed:", e);
       }
-      if (msuAudioRef.current) {
-        msuAudioRef.current.currentTime = 0;
-        msuAudioRef.current.play().catch(() => {});
-      }
-      const timer = setTimeout(() => setShowMSUChamp(false), 6200);
-      return () => {
-        clearTimeout(timer);
-        if (msuVideoRef.current) msuVideoRef.current.pause();
-        if (msuAudioRef.current) msuAudioRef.current.pause();
-      };
-    }
-  }, [showMSUChamp]);
+    };
+    run();
+  }, []);
+
+  // Prop-supplied schedule takes precedence over auto-fetched
+  const mergedSchedule = { ...fetchedSchedule, ...gameSchedule };
 
   // Build full bracket structure with 6 rounds
   const getTeamForSlot = useCallback(
@@ -263,14 +296,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 if (team === "Michigan" && gameId === "MR3G0" && picks[gameId] !== choice) {
                   setShowJPPride(true);
                 }
-                // Wisconsin easter egg: picking Wisconsin to win R64
-                if (team === "Wisconsin" && gameId === "W3" && picks[gameId] !== choice) {
-                  setShowPukallCheers(true);
-                }
-                // MSU champ easter egg: picking Michigan State to win it all
-                if (team === "Michigan St." && gameId === "CHAMP" && picks[gameId] !== choice) {
-                  setShowMSUChamp(true);
-                }
                 handlePick(gameId, choice);
               }}
               style={{
@@ -319,7 +344,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
             </div>
           );
         })}
-        {info && (
+        {info && !isMobile && (
           <div
             style={{
               display: "flex",
@@ -391,7 +416,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                       gameId = g.id;
                       team1 = g.team1; seed1 = g.seed1;
                       team2 = g.team2; seed2 = g.seed2;
-                      const sched = gameSchedule[g.id];
+                      const sched = mergedSchedule[g.id];
                       info = {
                         date:  g.date,
                         time:  sched?.game_time ?? sched?.time ?? g.time,
@@ -479,6 +504,12 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
             padding: "4px 6px",
             display: "flex",
             gap: 2,
+            overflowX: "auto",
+            flexWrap: "nowrap",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            width: isMobile ? "100%" : "auto",
           }}
         >
           {["South", "West", "East", "Midwest", "Final Four"].map((r) => {
@@ -874,169 +905,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 }}
               >
                 Go Blue! 〽️
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Wisconsin / Pukall Easter Egg Overlay */}
-      {showPukallCheers && (
-        <div
-          onClick={() => setShowPukallCheers(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0, 0, 0, 0.82)",
-            cursor: "pointer",
-            animation: "fadeIn 0.3s ease-out",
-          }}
-        >
-          <div
-            style={{
-              animation: "slideUp 0.5s ease-out, fadeOut 4s ease-in forwards",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-            }}
-          >
-            <div
-              style={{
-                width: 280,
-                height: 210,
-                borderRadius: 16,
-                overflow: "hidden",
-                border: "4px solid #C5050C",
-                boxShadow: "0 0 40px rgba(197, 5, 12, 0.6), 0 0 80px rgba(197, 5, 12, 0.25)",
-                animation: "headShake 0.8s ease-in-out 0.4s",
-              }}
-            >
-              <img
-                src="/pukall-cheers.jpg"
-                alt="The Pukalls cheering"
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center center",
-                }}
-              />
-            </div>
-            <div
-              style={{
-                textAlign: "center",
-                animation: "pulseText 1.5s ease-in-out infinite",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 500,
-                  color: "#fff",
-                  textShadow: "0 2px 20px rgba(197, 5, 12, 0.8)",
-                  letterSpacing: -0.5,
-                }}
-              >
-                Cheers from the Pukalls!
-              </div>
-              <div
-                style={{
-                  fontSize: 14,
-                  color: "#fff",
-                  fontWeight: 500,
-                  marginTop: 6,
-                  background: "#C5050C",
-                  display: "inline-block",
-                  padding: "4px 14px",
-                  borderRadius: 20,
-                }}
-              >
-                On, Wisconsin! 🦡
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MSU Championship Easter Egg — Video + One Shining Moment */}
-      {showMSUChamp && (
-        <div
-          onClick={() => setShowMSUChamp(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0, 0, 0, 0.92)",
-            cursor: "pointer",
-            animation: "fadeIn 0.3s ease-out",
-          }}
-        >
-          <div
-            style={{
-              animation: "slideUp 0.5s ease-out",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-            }}
-          >
-            <div
-              style={{
-                width: 320,
-                maxWidth: "85vw",
-                borderRadius: 16,
-                overflow: "hidden",
-                border: "4px solid #18453B",
-                boxShadow: "0 0 60px rgba(24, 69, 59, 0.7), 0 0 120px rgba(24, 69, 59, 0.3)",
-              }}
-            >
-              <video
-                ref={msuVideoRef}
-                src="/msu-champ.mp4"
-                muted
-                playsInline
-                style={{
-                  width: "100%",
-                  display: "block",
-                }}
-              />
-            </div>
-            <audio ref={msuAudioRef} src="/one-shining-moment.mp3" preload="auto" />
-            <div style={{ textAlign: "center" }}>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 500,
-                  color: "#fff",
-                  textShadow: "0 2px 20px rgba(24, 69, 59, 0.9)",
-                  letterSpacing: -0.5,
-                }}
-              >
-                ✨ One Shining Moment ✨
-              </div>
-              <div
-                style={{
-                  fontSize: 14,
-                  color: "#fff",
-                  fontWeight: 500,
-                  marginTop: 6,
-                  background: "#18453B",
-                  display: "inline-block",
-                  padding: "4px 14px",
-                  borderRadius: 20,
-                }}
-              >
-                Go Green! Go White!
               </div>
             </div>
           </div>
