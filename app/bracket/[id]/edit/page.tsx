@@ -39,15 +39,12 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
 
       setBracket(bracketData)
 
-      // Picks
       const picksMap: Record<string, number> = {}
       for (const p of picksData ?? []) picksMap[p.game_id] = p.winner_choice
       setInitialPicks(picksMap)
 
-      // Lock
       if (lockData?.value) setIsLocked(new Date() > new Date(lockData.value as string))
 
-      // Game schedule — first use whatever's in Supabase (may be empty)
       const schedMap: Record<string, any> = {}
       for (const g of scheduleData ?? []) {
         if (g.game_id) schedMap[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
@@ -56,52 +53,31 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
 
       setLoading(false)
 
-      // Then fetch ESPN directly from the browser (bypasses server IP blocking)
-      // and merge in real TV/time/venue data
       fetchESPNClientSide(schedMap)
     }
 
     const fetchESPNClientSide = async (existing: Record<string, any>) => {
-      // Direct ESPN event ID → our game_id map
-      // IDs sourced from actual ESPN API responses for 2026 tournament
       const ESPN_ID_MAP: Record<string, string> = {
-        // Mar 19 games (confirmed from API)
-        '401856478': 'E1',  // Duke vs Siena
-        '401856479': 'E2',  // Ohio State vs TCU
-        '401856480': 'W3',  // Wisconsin vs High Point
-        '401856481': 'W4',  // Arkansas vs Hawaii
-        '401856482': 'E5',  // Louisville vs South Florida
-        '401856483': 'E6',  // Michigan State vs NDSU
-        '401856484': 'W5',  // BYU vs TBD
-        '401856485': 'W6',  // Gonzaga vs Kennesaw State
-        '401856486': 'M1',  // Michigan vs TBD
-        '401856487': 'M2',  // Georgia vs Saint Louis
-        '401856488': 'S3',  // Vanderbilt vs McNeese
-        '401856489': 'S4',  // Nebraska vs Troy
-        '401856490': 'S5',  // North Carolina vs VCU
-        '401856491': 'S6',  // Illinois vs Penn
-        '401856492': 'S7',  // Saint Mary's vs Texas A&M
-        '401856493': 'S8',  // Houston vs Idaho
-        // Mar 20 games — IDs unconfirmed, name matching handles these
+        '401856478': 'E1', '401856479': 'E2', '401856480': 'W3', '401856481': 'W4',
+        '401856482': 'E5', '401856483': 'E6', '401856484': 'W5', '401856485': 'W6',
+        '401856486': 'M1', '401856487': 'M2', '401856488': 'S3', '401856489': 'S4',
+        '401856490': 'S5', '401856491': 'S6', '401856492': 'S7', '401856493': 'S8',
       }
 
-      // Fallback: exact ESPN team.location matching for Mar 20 games not yet in ID map
       const TEAM_MAP: Record<string, string[]> = {
-        'S1': ['Florida'],         'S2': ['Clemson'],
-        'E3': ["St. John's"],      'E4': ['Kansas'],
-        'E7': ['UCLA'],            'E8': ['UConn'],
-        'W1': ['Arizona'],         'W2': ['Villanova'],
-        'W7': ['Miami'],           'W8': ['Purdue'],
-        'M3': ['Texas Tech'],      'M4': ['Alabama'],
-        'M5': ['Tennessee'],       'M6': ['Virginia'],
-        'M7': ['Kentucky'],        'M8': ['Iowa State'],
+        'S1': ['Florida'],       'S2': ['Clemson'],
+        'E3': ["St. John's"],    'E4': ['Kansas'],
+        'E7': ['UCLA'],          'E8': ['UConn'],
+        'W1': ['Arizona'],       'W2': ['Villanova'],
+        'W7': ['Miami'],         'W8': ['Purdue'],
+        'M3': ['Texas Tech'],    'M4': ['Alabama'],
+        'M5': ['Tennessee'],     'M6': ['Virginia'],
+        'M7': ['Kentucky'],      'M8': ['Iowa State'],
       }
 
       try {
-        const dates = ['20260319', '20260320']
         const merged = { ...existing }
-
-        for (const date of dates) {
+        for (const date of ['20260319', '20260320']) {
           const res = await fetch(
             `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
           )
@@ -111,8 +87,6 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
             e.tournamentId === 22 ||
             e.competitions?.[0]?.notes?.[0]?.headline?.includes("NCAA Men's Basketball Championship")
           )
-          console.log('ESPN events found:', events.length, 'of', data.events?.length ?? 0, 'total')
-
           for (const event of events) {
             const comp = event.competitions?.[0]
             if (!comp) continue
@@ -120,19 +94,17 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
             const detail = event.status?.type?.detail ?? ''
             const timeMatch = detail.match(/at (.+)$/)
             const gameTime = timeMatch ? timeMatch[1] : 'TBD'
-            const tv = event.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? 'TBD'
+            const tv = comp?.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? 'TBD'
             const venue = comp.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : 'TBD'
 
-            // 1. Try direct ESPN event ID lookup first (exact, no ambiguity)
             const gameIdFromId = ESPN_ID_MAP[event.id]
             if (gameIdFromId) {
               merged[gameIdFromId] = { tv, game_time: gameTime, venue }
               continue
             }
 
-            // 2. Fallback: exact ESPN team.location matching for Mar 20 games
             for (const [gameId, nameOptions] of Object.entries(TEAM_MAP)) {
-              if (merged[gameId]?.tv) continue // already matched with real data
+              if (merged[gameId]?.tv) continue
               const matched = nameOptions.some(name =>
                 teamNames.some((t: string) => t.toLowerCase() === name.toLowerCase())
               )
@@ -143,11 +115,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
             }
           }
         }
-
         setGameSchedule(merged)
-        console.log('ESPN gameSchedule merged:', Object.keys(merged).length, 'games', merged)
-
-        // Write back to Supabase so future server renders have the data
         const updates = Object.entries(merged).map(([game_id, info]) => ({
           game_id, tv: info.tv, game_time: info.game_time, venue: info.venue
         }))
@@ -155,8 +123,7 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ updates }),
-        }).catch(() => {}) // fire and forget
-
+        }).catch(() => {})
       } catch (e) {
         console.warn('ESPN client fetch failed:', e)
       }
@@ -171,15 +138,31 @@ export default function EditBracketPage({ params }: { params: Promise<{ id: stri
       clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(async () => {
         try {
-          await supabase.from('picks').delete().eq('bracket_id', bracketId)
+          // Upsert all current picks — no bulk delete, eliminates race condition
           const picksArray = Object.entries(newPicks).map(([game_id, winner_choice]) => ({
             bracket_id: bracketId,
             game_id,
             winner_choice,
           }))
           if (picksArray.length > 0) {
-            const { error } = await supabase.from('picks').insert(picksArray)
+            const { error } = await supabase
+              .from('picks')
+              .upsert(picksArray, { onConflict: 'bracket_id,game_id' })
             if (error) throw error
+          }
+          // Delete only picks that were explicitly removed
+          const currentGameIds = Object.keys(newPicks)
+          const { data: existingPicks } = await supabase
+            .from('picks')
+            .select('game_id')
+            .eq('bracket_id', bracketId)
+          const toDelete = (existingPicks ?? [])
+            .map((p: any) => p.game_id)
+            .filter((id: string) => !currentGameIds.includes(id))
+          if (toDelete.length > 0) {
+            await supabase.from('picks').delete()
+              .eq('bracket_id', bracketId)
+              .in('game_id', toDelete)
           }
           await supabase.from('brackets').update({ updated_at: new Date().toISOString() }).eq('id', bracketId)
           setSaveStatus('saved')
