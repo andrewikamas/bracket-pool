@@ -53,129 +53,171 @@ export async function GET() {
   }
 }
 
+// Bracket name → real person name mapping
+const BRACKET_TO_PERSON: Record<string, string> = {
+  'JuJu FC':                 'Julian (Juju)',
+  'Russel Goat':             'Russell',
+  "Venny's Bracket":         'Venny',
+  'AIxAI':                   'Andrew',
+  '= Not My Favorite':       'Sarah',
+  'Uncle Fancy':             'Adam',
+  'Laura I':                 'Laura',
+  'Liv says hi!':            'Olivia',
+  "Dave's":                  'Dave',
+  'Seana Bird':              'Seana',
+  'Saya':                    'Saya',
+  'D Mon$y':                 'Dana',
+  'Calmer than you are...':  'Alec',
+  'Aunt Dee Dee':            'Delores',
+}
+
 export async function POST(req: Request) {
   try {
     const { leaderboard } = await req.json()
     const supabase = await createClient()
 
-    // Fetch completed games and all picks
-    const [{ data: games }, { data: picks }, { data: brackets }] = await Promise.all([
-      supabase.from('tournament_games').select('game_id, round, winner').not('winner', 'is', null),
-      supabase.from('picks').select('bracket_id, game_id, winner_choice'),
+    // Fetch completed games, champ picks, and bracket info
+    // Only fetch picks for completed games + CHAMP to avoid row cap
+    const completedGameIds = ((await supabase
+      .from('tournament_games')
+      .select('game_id, round, winner')
+      .not('winner', 'is', null)).data ?? [])
+
+    const completedGames = completedGameIds
+    const gameIds = completedGames.map((g: any) => g.game_id)
+
+    const [{ data: scoringPicksData }, { data: champPicksData }, { data: brackets }] = await Promise.all([
+      gameIds.length > 0
+        ? supabase.from('picks').select('bracket_id, game_id, winner_choice').in('game_id', gameIds)
+        : Promise.resolve({ data: [] }),
+      supabase.from('picks').select('bracket_id, winner_choice').eq('game_id', 'CHAMP'),
       supabase.from('brackets').select('id, name, profiles(display_name)'),
     ])
 
     const bracketMap = new Map(
-      (brackets ?? []).map((b) => [
+      (brackets ?? []).map((b: any) => [
         b.id,
         { name: b.name, display: (b.profiles as any)?.display_name ?? b.name },
       ])
     )
-    const allPicks = picks ?? []
-    const completedGames = games ?? []
+    const allPicks = scoringPicksData ?? []
 
-    // Champion picks
-    const champPicks = allPicks
-      .filter((p) => p.game_id === 'CHAMP')
-      .map((p) => {
-        const b = bracketMap.get(p.bracket_id)
-        return `${b?.display ?? 'Unknown'} → ${p.winner_choice}`
-      })
-
-    // Upset analysis for R64 games
-    const upsetLines: string[] = []
-    for (const game of completedGames) {
-      const ref = R64_GAMES[game.game_id]
-      if (!ref || !game.winner) continue
-      const winnerSeed = game.winner === ref.team1 ? ref.seed1 : ref.seed2
-      const loserSeed  = game.winner === ref.team1 ? ref.seed2 : ref.seed1
-      if (winnerSeed <= loserSeed) continue // favorite won, skip
-
-      const callers = allPicks
-        .filter((p) => p.game_id === game.game_id && p.winner_choice === game.winner)
-        .map((p) => bracketMap.get(p.bracket_id)?.display ?? 'Unknown')
-
-      const callerText =
-        callers.length === 0
-          ? 'nobody called it'
-          : `called by: ${callers.join(', ')}`
-
-      upsetLines.push(`${game.winner} (${winnerSeed}-seed) beat the ${loserSeed}-seed — ${callerText}`)
-    }
-
-    // Correct picks per person on completed games (for "hot start" narrative)
-    const correctByBracket = new Map<string, number>()
-    for (const pick of allPicks) {
-      const game = completedGames.find((g) => g.game_id === pick.game_id)
-      if (game && game.winner === pick.winner_choice) {
-        correctByBracket.set(pick.bracket_id, (correctByBracket.get(pick.bracket_id) ?? 0) + 1)
+    // ── Group leaderboard by PERSON (not bracket) ─────────────────────────────
+    // Each person's score = their BEST bracket score. Show one row per person.
+    const personMap = new Map<string, { person: string; bestScore: number; brackets: string[]; incomplete: number }>()
+    for (const entry of (leaderboard as any[])) {
+      const person = BRACKET_TO_PERSON[entry.bracket_name] ?? entry.display_name
+      const existing = personMap.get(person)
+      if (!existing) {
+        personMap.set(person, {
+          person,
+          bestScore: entry.score,
+          brackets: [entry.bracket_name],
+          incomplete: entry.picks_made < 63 ? 1 : 0,
+        })
+      } else {
+        existing.bestScore = Math.max(existing.bestScore, entry.score)
+        existing.brackets.push(entry.bracket_name)
+        if (entry.picks_made < 63) existing.incomplete++
       }
     }
 
-    const standingsText = (leaderboard as any[])
-      .map(
-        (e, i) =>
-          `${i + 1}. ${e.bracket_name} — ${e.score} pts${
-            e.picks_made < 63 ? `, ⚠ only ${e.picks_made}/63 picks submitted` : ''
-          }`
-      )
-      .join('\n')
+    // Sort by best score desc
+    const personStandings = [...personMap.values()].sort((a, b) => b.bestScore - a.bestScore)
 
-    const champText =
-      champPicks.length > 0
-        ? champPicks.join(' | ')
-        : 'No championship picks locked in yet'
+    // Build standings text — one line per person
+    let rank = 1
+    const standingsLines: string[] = []
+    for (let i = 0; i < personStandings.length; i++) {
+      const p = personStandings[i]
+      // Assign tied ranks correctly
+      if (i > 0 && personStandings[i].bestScore < personStandings[i - 1].bestScore) rank = i + 1
+      const multiNote = p.brackets.length > 1 ? ` (${p.brackets.length} brackets)` : ''
+      const incompleteNote = p.incomplete > 0 ? ` ⚠ incomplete picks` : ''
+      standingsLines.push(`${rank}. ${p.person}${multiNote} — ${p.bestScore} pts${incompleteNote}`)
+    }
+    const standingsText = standingsLines.join('\n')
 
-    const upsetText =
-      upsetLines.length > 0
-        ? upsetLines.join('\n')
-        : 'No upsets yet — chalk is holding so far'
+    // ── Champion picks — resolve 1/2 to actual team name ─────────────────────
+    const champLines: string[] = []
+    for (const cp of (champPicksData ?? [])) {
+      const b = bracketMap.get(cp.bracket_id)
+      if (!b) continue
+      const person = BRACKET_TO_PERSON[b.name] ?? b.name
+      // winner_choice 1 or 2 — look up team from R64 CHAMP path isn't available here,
+      // so just note the bracket name which the AI prompt key can resolve
+      champLines.push(`${person} (${b.name})`)
+    }
+    // Deduplicate by person
+    const uniqueChampLines = [...new Set(champLines)]
+
+    // ── Upset analysis — game.winner is 1 or 2, not a team name ──────────────
+    const upsetLines: string[] = []
+    for (const game of completedGames) {
+      const ref = R64_GAMES[(game as any).game_id]
+      if (!ref || !(game as any).winner) continue
+
+      // winner is 1 (team1 won) or 2 (team2 won)
+      const winnerNum = (game as any).winner as 1 | 2
+      const winnerTeam = winnerNum === 1 ? ref.team1 : ref.team2
+      const winnerSeed = winnerNum === 1 ? ref.seed1 : ref.seed2
+      const loserSeed  = winnerNum === 1 ? ref.seed2 : ref.seed1
+
+      if (winnerSeed <= loserSeed) continue // favorite won, skip
+
+      // Who called this upset? winner_choice matches winnerNum
+      const callerIds = allPicks
+        .filter((p: any) => p.game_id === (game as any).game_id && p.winner_choice === winnerNum)
+        .map((p: any) => {
+          const b = bracketMap.get(p.bracket_id)
+          return b ? (BRACKET_TO_PERSON[b.name] ?? b.name) : 'Unknown'
+        })
+      const uniqueCallers = [...new Set(callerIds)]
+
+      const callerText = uniqueCallers.length === 0
+        ? 'nobody called it'
+        : `called by: ${uniqueCallers.join(', ')}`
+
+      upsetLines.push(`${winnerTeam} (${winnerSeed}-seed) upset the ${loserSeed}-seed — ${callerText}`)
+    }
+
+    const champText = uniqueChampLines.length > 0
+      ? uniqueChampLines.join(', ')
+      : 'No championship picks locked in yet'
+
+    const upsetText = upsetLines.length > 0
+      ? upsetLines.join('\n')
+      : 'No upsets yet — chalk is holding so far'
 
     const totalCompleted = completedGames.length
 
-    const prompt = `You are the color commentator for a family March Madness bracket pool called the Ikamas Family Bracket Pool. Write fun, SPECIFIC commentary using the real names and teams from the data below.
+    const prompt = `You are the color commentator for a family March Madness bracket pool called the Ikamas Family Bracket Pool. Write fun, SPECIFIC commentary using the real names from the data below.
 
-BRACKET NAME → PERSON KEY (exact mapping — use the person's real name when talking about them, not the bracket name):
-- "JuJu FC" → Julian (Juju), Andrew's son, age 11, boy
-- "Russel Goat" → Russell, Andrew's son, age 8, boy
-- "Venny's Bracket" → Venny, Andrew's daughter, age 4, girl — treat with pure sweetness only
-- "AIxAI" → Andrew, the pool organizer, MSU fan, man
-- "= Not My Favorite" → Sarah, Andrew's wife, woman
-- "Uncle Fancy" → Adam, Andrew's brother, man
-- "Laura I" → Laura, Adam's wife and Andrew's sister-in-law, woman
-- "Liv says hi!" → Olivia, Adam's daughter and Andrew's niece, age 9, girl
-- "Dave's" → Dave, Andrew's cousin, Delores's son, man
-- "Seana Bird" → Seana, Dave's wife, woman
-- "Saya" → Saya, Seana's sister and Dave's sister-in-law, woman
-- "D Mon\$y" → Dana, Andrew's cousin, Delores's daughter, woman
-- "Calmer than you are..." → Alec, Dana's husband, man
-- "Aunt Dee Dee" → Delores, Andrew's aunt, Dave and Dana's mom, woman
-
-SPECIAL RULE — JP:
-JP is Delores's husband who passed away. If a bracket named "JP" appears in the standings, treat it with complete warmth and reverence. NEVER tease, mock, or make negative remarks about JP or his bracket under any circumstances.
+PEOPLE IN THE POOL:
+Andrew (MSU fan, pool organizer, has multiple brackets for his kids), Sarah (Andrew's wife), Julian/Juju (Andrew's son, age 11), Russell (Andrew's son, age 8), Venny (Andrew's daughter, age 4), Adam (Andrew's brother), Laura (Adam's wife), Olivia (Adam's daughter, age 9), Dave (Andrew's cousin), Seana (Dave's wife), Saya (Seana's sister), Dana (Andrew's cousin, Dave's sister), Alec (Dana's husband), Delores (Andrew's aunt, Dave and Dana's mom).
 
 ABSOLUTE RULES:
-1. NEVER tease or trash-talk children — Venny (age 4), Julian/Juju (age 11), Russell (age 8), Olivia (age 9). Kids can only be celebrated and cheered.
-2. Use correct pronouns per the key above.
-3. "Spicy" tone means light adult banter aimed only at adults: Andrew, Adam, Dave, Alec, Sarah, Laura, Seana, Saya, Dana, Delores. Keep it unmistakably affectionate, not mean.
-4. Always use the person's real name from the key above, not the bracket name, when writing commentary.
+1. NEVER tease or trash-talk children — Venny (4), Juju (11), Russell (8), Olivia (9). Kids get only celebration and encouragement.
+2. If JP appears anywhere, treat with complete warmth and reverence — never tease.
+3. "Spicy" banter is only for adults: Andrew, Sarah, Adam, Laura, Dave, Seana, Saya, Dana, Alec, Delores.
+4. Standings are shown ONE ROW PER PERSON (best bracket score). Don't say "X brackets tied" — say "X people tied."
+5. Andrew has multiple brackets because his young kids each filled one out — don't mock this, it's sweet.
 
-CURRENT STANDINGS (${totalCompleted} games completed so far):
+CURRENT STANDINGS — one row per person, ${totalCompleted} games completed (${standingsText.split('\n').length} people):
 ${standingsText}
 
-CHAMPIONSHIP PICKS:
+WHO PICKED THE CHAMPION:
 ${champText}
 
-UPSET RESULTS:
+UPSETS SO FAR:
 ${upsetText}
 
-Write exactly 2-3 sentences for EACH of two tones. Be specific — use real names from the key above. If no games have completed yet, write about the anticipation, the bold championship picks, and who's poised for glory.
+Write exactly 2-3 sentences for EACH tone. Be specific — use real first names. If no games completed yet, hype the anticipation and bold picks.
 
-TONE 1 "family": Warm, enthusiastic sports-hype voice. Celebrate who's leading, highlight smart picks, make everyone feel excited. Pure good vibes for all ages.
+TONE 1 "family": Warm, enthusiastic. Celebrate leaders, highlight smart picks, pure good vibes for all ages.
+TONE 2 "spicy": Light affectionate trash talk at adults only. Tease bad adult picks, celebrate upsets that busted brackets — fun and loving, never mean.
 
-TONE 2 "spicy": Light, affectionate trash talk aimed ONLY at adults. Tease adults in last place, celebrate upsets that busted brackets, playfully roast bad adult picks — but keep it clearly fun and loving. Never mean, never targeting kids or JP.
-
-Return ONLY valid JSON with exactly two string keys: "family" and "spicy". No markdown fences, no explanation outside the JSON.`
+Return ONLY valid JSON with exactly two string keys: "family" and "spicy". No markdown, no explanation.`
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
