@@ -96,7 +96,7 @@ export default function TVScheduleButton() {
           const home = competitors.find((c: any) => c.homeAway === 'home')
           const away = competitors.find((c: any) => c.homeAway === 'away')
           results[gameId] = {
-            tv: event.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? null,
+            tv: comp?.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? null,
             game_time: timeMatch ? timeMatch[1] : null,
             venue: comp?.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : null,
             status: event.status?.type?.state,
