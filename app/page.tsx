@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
 import ChampionBadge from '@/components/ChampionBadge'
+import RefreshScoresButton from '@/components/RefreshScoresButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -180,6 +181,7 @@ export default async function LeaderboardPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <RefreshScoresButton />
           <TVScheduleButton />
           <a
             href="/my-brackets"
