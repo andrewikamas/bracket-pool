@@ -12,12 +12,23 @@ interface LeaderboardEntry {
 interface Commentary {
   family: string
   spicy: string
+  nantz: string
+  socrates: string
   generated_at: string
 }
 
+const TONES = [
+  { key: 'family',   label: '👨‍👩‍👧‍👦 Family'  },
+  { key: 'spicy',    label: '🌶️ Spicy'    },
+  { key: 'nantz',    label: '🎙️ Nantz'    },
+  { key: 'socrates', label: '🏛️ Socrates' },
+] as const
+
+type Tone = typeof TONES[number]['key']
+
 export default function AICommentary({ leaderboard }: { leaderboard: LeaderboardEntry[] }) {
   const [commentary, setCommentary] = useState<Commentary | null>(null)
-  const [tone, setTone] = useState<'family' | 'spicy'>('family')
+  const [tone, setTone] = useState<Tone>('family')
   const [status, setStatus] = useState<'loading' | 'generating' | 'ready' | 'error'>('loading')
 
   const generate = useCallback(async () => {
@@ -61,9 +72,12 @@ export default function AICommentary({ leaderboard }: { leaderboard: Leaderboard
 
   const isSpicy = tone === 'spicy'
 
-  // Colors shift between warm amber (family) and fiery orange-red (spicy)
   const colors = isSpicy
     ? { bg: '#fff7f0', border: '#fed7aa', accent: '#ea580c', label: '#9a3412', text: '#431407', muted: '#c2410c' }
+    : tone === 'nantz'
+    ? { bg: '#f0f4ff', border: '#c7d7fd', accent: '#3b5bdb', label: '#1e3a8a', text: '#1e1b4b', muted: '#3730a3' }
+    : tone === 'socrates'
+    ? { bg: '#f5f0ff', border: '#ddd6fe', accent: '#7c3aed', label: '#4c1d95', text: '#2e1065', muted: '#6d28d9' }
     : { bg: '#fefce8', border: '#fde68a', accent: '#d97706', label: '#92400e', text: '#1c1917', muted: '#a16207' }
 
   if (status === 'loading') {
@@ -177,28 +191,27 @@ export default function AICommentary({ leaderboard }: { leaderboard: Leaderboard
           🎙️ Pool Report
         </span>
 
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* Tone toggle */}
-          <button
-            onClick={() => setTone(isSpicy ? 'family' : 'spicy')}
-            title={isSpicy ? 'Switch to family-friendly' : 'Switch to spicy mode'}
-            style={{
-              fontSize: 12,
-              padding: '4px 10px',
-              background: isSpicy ? '#fff7ed' : '#fef9c3',
-              border: `1px solid ${isSpicy ? '#fed7aa' : '#fde68a'}`,
-              borderRadius: 20,
-              cursor: 'pointer',
-              color: colors.muted,
-              fontWeight: 600,
-              transition: 'all 0.2s',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {isSpicy ? '😇 Keep it clean' : '🌶️ Spice it up'}
-          </button>
-
-          {/* Refresh */}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          {TONES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTone(t.key)}
+              style={{
+                fontSize: 12,
+                padding: '4px 10px',
+                background: tone === t.key ? colors.accent : 'transparent',
+                border: `1px solid ${tone === t.key ? colors.accent : colors.border}`,
+                borderRadius: 20,
+                cursor: 'pointer',
+                color: tone === t.key ? 'white' : colors.muted,
+                fontWeight: tone === t.key ? 600 : 500,
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
           <button
             onClick={generate}
             title="Generate fresh commentary"
