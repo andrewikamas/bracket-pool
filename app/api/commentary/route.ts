@@ -56,19 +56,23 @@ export async function GET() {
 // Bracket name → real person name mapping
 const BRACKET_TO_PERSON: Record<string, string> = {
   'JuJu FC':                 'Julian (Juju)',
-  'Russel Goat':             'Russell',
+  'Russel GOAT':             'Russell',
   "Venny's Bracket":         'Venny',
   'AIxAI':                   'Andrew',
   '= Not My Favorite':       'Sarah',
   'Uncle Fancy':             'Adam',
   'Laura I':                 'Laura',
   'Liv says hi!':            'Olivia',
+  'adalyn':                  'Adalyn',
   "Dave's":                  'Dave',
   'Seana Bird':              'Seana',
   'Saya':                    'Saya',
   'D Mon$y':                 'Dana',
   'Calmer than you are...':  'Alec',
   'Aunt Dee Dee':            'Delores',
+  'This is AJ':              'AJ',
+  'Pooks Picks':             'Jim',
+  'Lucille':                 'Lucille',
 }
 
 export async function POST(req: Request) {
@@ -194,12 +198,12 @@ export async function POST(req: Request) {
     const prompt = `You are the color commentator for a family March Madness bracket pool called the Ikamas Family Bracket Pool. Write fun, SPECIFIC commentary using the real names from the data below.
 
 PEOPLE IN THE POOL:
-Andrew (MSU fan, pool organizer, has multiple brackets for his kids), Sarah (Andrew's wife), Julian/Juju (Andrew's son, age 11), Russell (Andrew's son, age 8), Venny (Andrew's daughter, age 4), Adam (Andrew's brother), Laura (Adam's wife), Olivia (Adam's daughter, age 9), Dave (Andrew's cousin), Seana (Dave's wife), Saya (Seana's sister), Dana (Andrew's cousin, Dave's sister), Alec (Dana's husband), Delores (Andrew's aunt, Dave and Dana's mom).
+Andrew (MSU fan, pool organizer, has multiple brackets for his kids), Sarah (Andrew's wife), Julian/Juju (Andrew's son, age 11), Russell (Andrew's son, age 8), Venny (Andrew's daughter, age 4), Adam (Andrew's brother), Laura (Adam's wife), Olivia (Adam's daughter, age 9), Adalyn (Adam's daughter, Olivia's sister), Dave (Andrew's cousin), Seana (Dave's wife), Saya (Seana's sister), Dana (Andrew's cousin, Dave's sister), Alec (Dana's husband), Delores (Andrew's aunt, Dave and Dana's mom), Jim (Laura Pukall's husband, Andrew's cousin-in-law, Wisconsin fan), AJ (Jim and Laura Pukall's son, Andrew's nephew), Lucille (Jim and Laura Pukall's daughter, AJ's sister).
 
 ABSOLUTE RULES:
-1. NEVER tease or trash-talk children — Venny (4), Juju (11), Russell (8), Olivia (9). Kids get only celebration and encouragement.
+1. NEVER tease or trash-talk minors — Venny (4), Juju (11), Russell (8), Olivia (9), Adalyn (13), Lucille (16). They get only celebration and encouragement.
 2. If JP appears anywhere, treat with complete warmth and reverence — never tease.
-3. "Spicy" banter is only for adults: Andrew, Sarah, Adam, Laura, Dave, Seana, Saya, Dana, Alec, Delores.
+3. "Spicy" banter is only for adults: Andrew, Sarah, Adam, Laura, Dave, Seana, Saya, Dana, Alec, Delores, AJ (age 20).
 4. Standings are shown ONE ROW PER PERSON (best bracket score). Don't say "X brackets tied" — say "X people tied."
 5. Andrew has multiple brackets because his young kids each filled one out — don't mock this, it's sweet.
 
