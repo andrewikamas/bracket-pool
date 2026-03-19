@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     const standingsText = (leaderboard as any[])
       .map(
         (e, i) =>
-          `${i + 1}. ${e.bracket_name} (${e.display_name}) — ${e.score} pts${
+          `${i + 1}. ${e.bracket_name} — ${e.score} pts${
             e.picks_made < 63 ? `, ⚠ only ${e.picks_made}/63 picks submitted` : ''
           }`
       )
