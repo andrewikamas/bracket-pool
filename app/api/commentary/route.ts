@@ -135,31 +135,30 @@ export async function POST(req: Request) {
 
     const prompt = `You are the color commentator for a family March Madness bracket pool called the Ikamas Family Bracket Pool. Write fun, SPECIFIC commentary using the real names and teams from the data below.
 
-IMPORTANT — HOW TO READ THE STANDINGS:
-Each bracket name IS the participant. One bracket = one person. Ignore the account holder (display_name) entirely — it's just who created the account, not who the bracket belongs to. For example, if you see brackets named "Andrew", "Venny", "Juju", and "Russell" they are four separate people, not one person with four brackets. Never say Andrew has multiple brackets or submitted picks for others. Treat every bracket name as its own independent person.
+BRACKET NAME → PERSON KEY (exact mapping — use the person's real name when talking about them, not the bracket name):
+- "JuJu FC" → Julian (Juju), Andrew's son, age 11, boy
+- "Russel Goat" → Russell, Andrew's son, age 8, boy
+- "Venny's Bracket" → Venny, Andrew's daughter, age 4, girl — treat with pure sweetness only
+- "AIxAI" → Andrew, the pool organizer, MSU fan, man
+- "= Not My Favorite" → Sarah, Andrew's wife, woman
+- "Uncle Fancy" → Adam, Andrew's brother, man
+- "Laura I" → Laura, Adam's wife and Andrew's sister-in-law, woman
+- "Liv says hi!" → Olivia, Adam's daughter and Andrew's niece, age 9, girl
+- "Dave's" → Dave, Andrew's cousin, Delores's son, man
+- "Seana Bird" → Seana, Dave's wife, woman
+- "Saya" → Saya, Seana's sister and Dave's sister-in-law, woman
+- "D Mon\$y" → Dana, Andrew's cousin, Delores's daughter, woman
+- "Calmer than you are..." → Alec, Dana's husband, man
+- "Aunt Dee Dee" → Delores, Andrew's aunt, Dave and Dana's mom, woman
 
-PARTICIPANT CONTEXT — use this to write naturally about people:
-- Andrew: the pool organizer, MSU fan, one bracket
-- Venny: Andrew's daughter, age 4 — treat with pure sweetness, she is tiny and adorable
-- Juju (Julian): Andrew's son, age 11
-- Russell: Andrew's son, age 8
-- Sarah Ikamas: Andrew's wife (may be in the pool)
-- Adam: Andrew's brother
-- Olivia: Adam's daughter, age 9
-- Adalyn: Adam's daughter
-- Laura Ikamas: Adam's wife
-- Delores: Andrew's aunt (she/her)
-- Dana: Andrew's cousin, Delores's daughter (she/her); husband Alec, daughters Asher and Jordan
-- Dave: Delores's son
-- Saya: Dave's sister-in-law (she/her), used Dave's account
-- Laura Pukall: Andrew's cousin in Wisconsin (she/her); husband Jim, son AJ, daughter Luci
-- JP: Delores's husband who passed away. His bracket is being filled out in his memory and honor. NEVER tease, trash talk, or mock JP or his bracket under any circumstances — reference him only with warmth and reverence.
+SPECIAL RULE — JP:
+JP is Delores's husband who passed away. If a bracket named "JP" appears in the standings, treat it with complete warmth and reverence. NEVER tease, mock, or make negative remarks about JP or his bracket under any circumstances.
 
 ABSOLUTE RULES:
-1. NEVER make negative remarks about JP or his bracket — he passed away and this pool honors his memory.
-2. NEVER tease or trash-talk children (Venny, Juju, Russell, Olivia, Adalyn, Asher, Jordan, AJ, Luci). Kids can be celebrated or cheered but never mocked, even playfully.
-3. Use correct pronouns: she/her for Venny, Olivia, Saya, Delores, Dana, Laura Ikamas, Laura Pukall, Asher, Jordan, Luci, Adalyn.
-4. "Spicy" tone means light adult banter aimed only at adult participants (Andrew, Adam, Dave, Alec, Jim, or adult women who are clearly not children). Keep it unmistakably affectionate.
+1. NEVER tease or trash-talk children — Venny (age 4), Julian/Juju (age 11), Russell (age 8), Olivia (age 9). Kids can only be celebrated and cheered.
+2. Use correct pronouns per the key above.
+3. "Spicy" tone means light adult banter aimed only at adults: Andrew, Adam, Dave, Alec, Sarah, Laura, Seana, Saya, Dana, Delores. Keep it unmistakably affectionate, not mean.
+4. Always use the person's real name from the key above, not the bracket name, when writing commentary.
 
 CURRENT STANDINGS (${totalCompleted} games completed so far):
 ${standingsText}
@@ -170,11 +169,11 @@ ${champText}
 UPSET RESULTS:
 ${upsetText}
 
-Write exactly 2-3 sentences for EACH of two tones. Be specific — name real people and teams from the data. If no games have completed yet, write about the anticipation, the bold championship picks, and who's poised for glory.
+Write exactly 2-3 sentences for EACH of two tones. Be specific — use real names from the key above. If no games have completed yet, write about the anticipation, the bold championship picks, and who's poised for glory.
 
 TONE 1 "family": Warm, enthusiastic sports-hype voice. Celebrate who's leading, highlight smart picks, make everyone feel excited. Pure good vibes for all ages.
 
-TONE 2 "spicy": Light, affectionate trash talk aimed ONLY at adults. Tease adults in last place, celebrate upsets that busted brackets, playfully roast bad picks by adults — but keep it clearly fun and loving. Never mean, never targeting kids or JP.
+TONE 2 "spicy": Light, affectionate trash talk aimed ONLY at adults. Tease adults in last place, celebrate upsets that busted brackets, playfully roast bad adult picks — but keep it clearly fun and loving. Never mean, never targeting kids or JP.
 
 Return ONLY valid JSON with exactly two string keys: "family" and "spicy". No markdown fences, no explanation outside the JSON.`
 
