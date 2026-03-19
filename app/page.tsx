@@ -21,7 +21,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     await Promise.all([
       supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
       supabase.from('tournament_games').select('game_id, round, winner'),
-      supabase.from('picks').select('bracket_id, game_id, winner_choice'),
+      supabase.from('picks').select('bracket_id, game_id, winner_choice').limit(2000),
       supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
       supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     ])
