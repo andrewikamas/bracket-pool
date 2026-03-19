@@ -58,17 +58,20 @@ const BRACKET_TO_PERSON: Record<string, string> = {
   'JuJu FC':                 'Julian (Juju)',
   'Russel GOAT':             'Russell',
   "Venny's Bracket":         'Venny',
+  'Venny\u2019s Bracket':    'Venny',  // curly apostrophe variant
   'AIxAI':                   'Andrew',
   '= Not My Favorite':       'Sarah',
   'Uncle Fancy':             'Adam',
   'Laura I':                 'Laura',
   'Liv says hi!':            'Olivia',
   'adalyn':                  'Adalyn',
-  "Dave's":                  'Dave',
+  'Dave\'s':                 'Dave',
+  'Dave\u2019s':             'Dave',  // curly apostrophe variant
   'Seana Bird':              'Seana',
   'Saya':                    'Saya',
   'D Mon$y':                 'Dana',
   'Calmer than you are...':  'Alec',
+  'Calmer than you are\u2026': 'Alec',  // unicode ellipsis variant
   'Aunt Dee Dee':            'Delores',
   'This is AJ':              'AJ',
   'Pooks Picks':             'Jim',
@@ -110,7 +113,7 @@ export async function POST(req: Request) {
     // Each person's score = their BEST bracket score. Show one row per person.
     const personMap = new Map<string, { person: string; bestScore: number; brackets: string[]; incomplete: number }>()
     for (const entry of (leaderboard as any[])) {
-      const person = BRACKET_TO_PERSON[entry.bracket_name] ?? entry.display_name
+      const person = BRACKET_TO_PERSON[entry.bracket_name] ?? entry.bracket_name
       const existing = personMap.get(person)
       if (!existing) {
         personMap.set(person, {
