@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
+import ChampionBadge from '@/components/ChampionBadge'
 
 export const dynamic = 'force-dynamic'
 
@@ -247,7 +248,9 @@ export default async function LeaderboardPage() {
                     <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
                     {hasChampPicks && (
                       <td style={{ padding: '11px 12px', color: '#6b7280', fontSize: 13 }}>
-                        {entry.champion_pick ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                        {entry.champion_pick
+                          ? <ChampionBadge champion={entry.champion_pick} />
+                          : <span style={{ color: '#d1d5db' }}>—</span>}
                       </td>
                     )}
                     <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
