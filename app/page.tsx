@@ -9,23 +9,37 @@ interface LeaderboardEntry {
   score: number
   picks_made: number
   tiebreaker: number | null
+  champion_pick: string | null
 }
 
 async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const supabase = await createClient()
 
-  const [{ data: brackets }, { data: games }, { data: allPicks }, { data: scoringSetting }] =
+  const [{ data: brackets }, { data: games }, { data: allPicks }, { data: scoringSetting }, { data: lockSetting }] =
     await Promise.all([
       supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
       supabase.from('tournament_games').select('game_id, round, winner'),
       supabase.from('picks').select('bracket_id, game_id, winner_choice'),
       supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
+      supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     ])
+
+  // Lock time: default to Thu Mar 19 1:30 PM Eastern = 17:30 UTC
+  const lockTime = lockSetting?.value
+    ? new Date(lockSetting.value as string)
+    : new Date('2026-03-19T17:30:00Z')
+  const isLocked = new Date() >= lockTime
 
   const scoring: Record<string, number> =
     (scoringSetting?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
   const results = new Map((games ?? []).map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
   const picks = allPicks ?? []
+
+  // Build champ pick map: bracket_id -> winner_choice (team name string)
+  const champPicks = new Map<string, string>()
+  for (const p of picks) {
+    if (p.game_id === 'CHAMP') champPicks.set(p.bracket_id, p.winner_choice)
+  }
 
   const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
     const bracketPicks = picks.filter((p) => p.bracket_id === b.id)
@@ -43,6 +57,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       score,
       picks_made: bracketPicks.length,
       tiebreaker: b.tiebreaker,
+      champion_pick: isLocked ? (champPicks.get(b.id) ?? null) : null,
     }
   })
 
@@ -54,6 +69,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
 export default async function LeaderboardPage() {
   const leaderboard = await getLeaderboard()
+  const hasChampPicks = leaderboard.some((e) => e.champion_pick)
 
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto', padding: '24px 20px' }}>
@@ -61,7 +77,7 @@ export default async function LeaderboardPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>🏀 2026 NCAA Bracket Pool</h1>
           <p style={{ color: '#6b7280', marginTop: 4, fontSize: 13 }}>
-            Tournament starts Thu Mar 19 · Scores update as games complete
+            Brackets lock Thu Mar 19 at 1:30 PM ET · Scores update as games complete
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -100,14 +116,16 @@ export default async function LeaderboardPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                {['#', 'Bracket', 'Player', 'Score', 'Picks'].map((h, i) => (
+                {['#', 'Bracket', 'Player', hasChampPicks ? '🏆 Champion' : null, 'Score', 'Picks']
+                  .filter(Boolean)
+                  .map((h, i) => (
                   <th
-                    key={h}
+                    key={h as string}
                     style={{
                       padding: '8px 12px',
                       fontWeight: 600,
                       color: '#374151',
-                      textAlign: i >= 3 ? 'right' : 'left',
+                      textAlign: (hasChampPicks ? i >= 4 : i >= 3) ? 'right' : 'left',
                     }}
                   >
                     {h}
@@ -130,6 +148,11 @@ export default async function LeaderboardPage() {
                       </a>
                     </td>
                     <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
+                    {hasChampPicks && (
+                      <td style={{ padding: '11px 12px', color: '#6b7280', fontSize: 13 }}>
+                        {entry.champion_pick ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                      </td>
+                    )}
                     <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
                     <td style={{ padding: '11px 12px', textAlign: 'right' }}>
                       {incomplete ? (
