@@ -21,22 +21,22 @@ const GAMES = [
   { id: 'S7',  t1: "Saint Mary's",  s1: 7,  t2: 'Texas A&M',       s2: 10, region: 'South',   espnId: '401856492' },
   { id: 'S8',  t1: 'Houston',       s1: 2,  t2: 'Idaho',           s2: 15, region: 'South',   espnId: '401856493' },
   // Friday March 20 — ESPN IDs unconfirmed, will populate when schedule releases
-  { id: 'W1',  t1: 'Arizona',       s1: 1,  t2: 'LIU',             s2: 16, region: 'West',    espnId: '401856529' },
-  { id: 'W2',  t1: 'Villanova',     s1: 8,  t2: 'Utah St.',        s2: 9,  region: 'West',    espnId: '401856528' },
-  { id: 'S1',  t1: 'Florida',       s1: 1,  t2: 'PV A&M/Lehigh',  s2: 16, region: 'South',   espnId: '401856523' },
-  { id: 'S2',  t1: 'Clemson',       s1: 8,  t2: 'Iowa',            s2: 9,  region: 'South',   espnId: '401856522' },
-  { id: 'E3',  t1: "St. John's",    s1: 5,  t2: 'Northern Iowa',   s2: 12, region: 'East',    espnId: '401856494' },
-  { id: 'E4',  t1: 'Kansas',        s1: 4,  t2: 'Cal Baptist',     s2: 13, region: 'East',    espnId: '401856495' },
-  { id: 'W7',  t1: 'Miami (FL)',    s1: 7,  t2: 'Missouri',        s2: 10, region: 'West',    espnId: '401856518' },
-  { id: 'W8',  t1: 'Purdue',        s1: 2,  t2: 'Queens',          s2: 15, region: 'West',    espnId: '401856519' },
-  { id: 'M3',  t1: 'Texas Tech',    s1: 5,  t2: 'Akron',           s2: 12, region: 'Midwest', espnId: '401856520' },
-  { id: 'M4',  t1: 'Alabama',       s1: 4,  t2: 'Hofstra',         s2: 13, region: 'Midwest', espnId: '401856521' },
-  { id: 'E7',  t1: 'UCLA',          s1: 7,  t2: 'UCF',             s2: 10, region: 'East',    espnId: '401856496' },
-  { id: 'E8',  t1: 'UConn',         s1: 2,  t2: 'Furman',          s2: 15, region: 'East',    espnId: '401856497' },
-  { id: 'M5',  t1: 'Tennessee',     s1: 6,  t2: 'SMU/Miami (OH)', s2: 11, region: 'Midwest', espnId: '401856527' },
-  { id: 'M6',  t1: 'Virginia',      s1: 3,  t2: 'Wright St.',      s2: 14, region: 'Midwest', espnId: '401856526' },
-  { id: 'M7',  t1: 'Kentucky',      s1: 7,  t2: 'Santa Clara',     s2: 10, region: 'Midwest', espnId: '401856525' },
-  { id: 'M8',  t1: 'Iowa St.',      s1: 2,  t2: 'Tennessee St.',   s2: 15, region: 'Midwest', espnId: '401856524' },
+  { id: 'W1',  t1: 'Arizona',       s1: 1,  t2: 'LIU',             s2: 16, region: 'West',    espnId: '' },
+  { id: 'W2',  t1: 'Villanova',     s1: 8,  t2: 'Utah St.',        s2: 9,  region: 'West',    espnId: '' },
+  { id: 'S1',  t1: 'Florida',       s1: 1,  t2: 'PV A&M/Lehigh',  s2: 16, region: 'South',   espnId: '' },
+  { id: 'S2',  t1: 'Clemson',       s1: 8,  t2: 'Iowa',            s2: 9,  region: 'South',   espnId: '' },
+  { id: 'E3',  t1: "St. John's",    s1: 5,  t2: 'Northern Iowa',   s2: 12, region: 'East',    espnId: '' },
+  { id: 'E4',  t1: 'Kansas',        s1: 4,  t2: 'Cal Baptist',     s2: 13, region: 'East',    espnId: '' },
+  { id: 'W7',  t1: 'Miami (FL)',    s1: 7,  t2: 'Missouri',        s2: 10, region: 'West',    espnId: '' },
+  { id: 'W8',  t1: 'Purdue',        s1: 2,  t2: 'Queens',          s2: 15, region: 'West',    espnId: '' },
+  { id: 'M3',  t1: 'Texas Tech',    s1: 5,  t2: 'Akron',           s2: 12, region: 'Midwest', espnId: '' },
+  { id: 'M4',  t1: 'Alabama',       s1: 4,  t2: 'Hofstra',         s2: 13, region: 'Midwest', espnId: '' },
+  { id: 'E7',  t1: 'UCLA',          s1: 7,  t2: 'UCF',             s2: 10, region: 'East',    espnId: '' },
+  { id: 'E8',  t1: 'UConn',         s1: 2,  t2: 'Furman',          s2: 15, region: 'East',    espnId: '' },
+  { id: 'M5',  t1: 'Tennessee',     s1: 6,  t2: 'SMU/Miami (OH)', s2: 11, region: 'Midwest', espnId: '' },
+  { id: 'M6',  t1: 'Virginia',      s1: 3,  t2: 'Wright St.',      s2: 14, region: 'Midwest', espnId: '' },
+  { id: 'M7',  t1: 'Kentucky',      s1: 7,  t2: 'Santa Clara',     s2: 10, region: 'Midwest', espnId: '' },
+  { id: 'M8',  t1: 'Iowa St.',      s1: 2,  t2: 'Tennessee St.',   s2: 15, region: 'Midwest', espnId: '' },
 ]
 
 const REGION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -96,7 +96,7 @@ export default function TVScheduleButton() {
           const home = competitors.find((c: any) => c.homeAway === 'home')
           const away = competitors.find((c: any) => c.homeAway === 'away')
           results[gameId] = {
-            tv: comp?.geoBroadcasts?.[0]?.media?.shortName ?? null,
+            tv: event.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? null,
             game_time: timeMatch ? timeMatch[1] : null,
             venue: comp?.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : null,
             status: event.status?.type?.state,
@@ -124,14 +124,25 @@ export default function TVScheduleButton() {
   const fri = GAMES.slice(16)
 
   const DaySection = ({ games, day }: { games: typeof GAMES; day: string }) => {
-    // Sort by game_time if available, else keep static order
+    // Parse "2:30 PM ET" style strings into sortable minutes-since-midnight
+    const parseTime = (t: string): number => {
+      const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i)
+      if (!m) return 9999
+      let h = parseInt(m[1])
+      const min = parseInt(m[2])
+      const ampm = m[3].toUpperCase()
+      if (ampm === 'PM' && h !== 12) h += 12
+      if (ampm === 'AM' && h === 12) h = 0
+      return h * 60 + min
+    }
+
     const sorted = [...games].sort((a, b) => {
       const ta = schedule[a.id]?.game_time ?? ''
       const tb = schedule[b.id]?.game_time ?? ''
       if (!ta && !tb) return 0
       if (!ta) return 1
       if (!tb) return -1
-      return ta.localeCompare(tb)
+      return parseTime(ta) - parseTime(tb)
     })
 
     return (
