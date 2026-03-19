@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
 
-export const revalidate = 0
+export const dynamic = 'force-dynamic'
 
 interface LeaderboardEntry {
   bracket_id: string
