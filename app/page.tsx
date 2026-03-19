@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
 
+export const revalidate = 0
+
 interface LeaderboardEntry {
   bracket_id: string
   bracket_name: string
