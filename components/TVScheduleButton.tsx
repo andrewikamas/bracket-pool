@@ -141,16 +141,16 @@ export default function TVScheduleButton() {
 
   // Group games by date and sort: today/future first, past days at bottom
   const DAYS = [
-    { games: GAMES.slice(0, 16),  label: 'Thursday, March 19 — First Round',  date: new Date('2026-03-19') },
-    { games: GAMES.slice(16, 32), label: 'Friday, March 20 — First Round',    date: new Date('2026-03-20') },
-    { games: GAMES.slice(32),     label: 'Saturday, March 21 — Round of 32',  date: new Date('2026-03-21') },
+    { games: GAMES.slice(0, 16),  label: 'Thursday, March 19 — First Round',  dateStr: '2026-03-19' },
+    { games: GAMES.slice(16, 32), label: 'Friday, March 20 — First Round',    dateStr: '2026-03-20' },
+    { games: GAMES.slice(32),     label: 'Saturday, March 21 — Round of 32',  dateStr: '2026-03-21' },
   ]
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // Use local date string (YYYY-MM-DD) to avoid UTC vs local timezone issues
+  const todayStr = new Date().toLocaleDateString('en-CA') // 'en-CA' gives YYYY-MM-DD format
 
-  const upcomingDays = DAYS.filter(d => d.date >= today)
-  const pastDays     = DAYS.filter(d => d.date < today)
+  const upcomingDays = DAYS.filter(d => d.dateStr >= todayStr)
+  const pastDays     = DAYS.filter(d => d.dateStr < todayStr)
   const orderedDays  = [...upcomingDays, ...pastDays]
 
   const DaySection = ({ games, day }: { games: typeof GAMES; day: string }) => {
@@ -382,11 +382,11 @@ export default function TVScheduleButton() {
                 </div>
               ) : (
                 <>
-                  {orderedDays.map(({ games, label, date }) => (
+                  {orderedDays.map(({ games, label, dateStr }) => (
                     <DaySection
                       key={label}
                       games={games}
-                      day={date < today ? `${label} · Past` : label}
+                      day={dateStr < todayStr ? `${label} · Past` : label}
                     />
                   ))}
                 </>
