@@ -223,11 +223,12 @@ Write exactly 2-3 sentences for EACH of four tones. Be specific — use real fir
 
 TONE 1 "family": Warm, enthusiastic. Celebrate leaders, highlight smart picks, pure good vibes for all ages.
 TONE 2 "spicy": Light affectionate trash talk at adults only. Tease bad adult picks, celebrate upsets that busted brackets — fun and loving, never mean.
-TONE 3 "nantz": Write exactly as Jim Nantz would call it on CBS — his signature warmth, gravitas, poetic cadence, and signature phrases like "Hello, friends." Reference the tournament with reverence. Make it sound like the final moments of a Masters broadcast but for this family pool.
-TONE 4 "socrates": Write as Socrates would — through probing questions and dialectic reasoning. Question what it truly means to win a bracket pool. Challenge the participants to examine their assumptions about picking teams. Use classical philosophical language but apply it absurdly to March Madness.
-TONE 5 "barkley": Write exactly as Charles Barkley would on Inside the NBA — loud, opinionated, self-contradicting, uses "turrible" unironically, drops "I may be wrong but..." before wild claims, calls out people by name for bad picks, brags about his own hypothetical bracket, and ends with something only tangentially related. Pure entertainment.
+TONE 3 "trump": Write exactly as Donald Trump would — superlatives everywhere ("the greatest bracket pool, maybe ever"), claims his hypothetical picks would have been perfect, refers to losing brackets as "total disasters" and "very unfair", brags about crowd size at the games, uses "believe me" and "many people are saying" constantly. Keep it purely stylistic, no real politics.
+TONE 4 "scully": Write as Vin Scully would — poetic, warm, storytelling voice. Pull in a brief tangential anecdote about a player's hometown or a historical moment. Paint the scene with his signature unhurried cadence, as if describing a summer afternoon at Dodger Stadium but it's March Madness. Timeless and beautiful.
+TONE 5 "cosell": Write as Howard Cosell would — bombastic, self-important, uses his own name occasionally ("I, Howard Cosell, tell you this"), speaks in declarative proclamations, quotes himself, uses words like "predilection" and "juggernaut," and cannot resist editorializing about everything. Dramatic pauses implied.
+TONE 6 "underpants": Write as Captain Underpants would narrate it — silly, breathless, lots of "tra-la-laaa!", references underwear and potty humor tangentially, calls everyone by goofy nicknames, gets distracted mid-sentence, uses made-up words, ends with something completely unrelated to basketball.
 
-Return ONLY valid JSON with exactly five string keys: "family", "spicy", "nantz", "socrates", "barkley". No markdown, no explanation.`
+Return ONLY valid JSON with exactly six string keys: "family", "spicy", "trump", "scully", "cosell", "underpants". No markdown, no explanation.`
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -238,7 +239,7 @@ Return ONLY valid JSON with exactly five string keys: "family", "spicy", "nantz"
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
+        max_tokens: 1200,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -246,25 +247,27 @@ Return ONLY valid JSON with exactly five string keys: "family", "spicy", "nantz"
     const anthropicData = await anthropicRes.json()
     const rawText: string = anthropicData.content?.[0]?.text ?? ''
 
-    let parsed: { family: string; spicy: string; nantz: string; socrates: string; barkley: string }
+    let parsed: { family: string; spicy: string; trump: string; scully: string; cosell: string; underpants: string }
     try {
       parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim())
     } catch {
       parsed = {
-        family: rawText || 'The tournament is underway — check back soon for the full breakdown!',
-        spicy: rawText || "The bracket carnage hasn't started yet. Stay tuned.",
-        nantz: rawText || 'Hello, friends. The tournament is upon us.',
-        socrates: rawText || 'But what is a bracket, truly?',
-        barkley: rawText || "These brackets are TURRIBLE. I may be wrong but I am not.",
+        family:     'The tournament is underway — check back soon for the full breakdown!',
+        spicy:      "The bracket carnage hasn't started yet. Stay tuned.",
+        trump:      "This is the greatest bracket pool ever made, believe me.",
+        scully:     "It is a lovely evening for basketball, and here we are.",
+        cosell:     "I, Howard Cosell, declare this tournament to be underway.",
+        underpants: "Tra-la-laaa! The brackets are happening! Also underpants!",
       }
     }
 
     const commentary = {
-      family: parsed.family,
-      spicy: parsed.spicy,
-      nantz: parsed.nantz,
-      socrates: parsed.socrates,
-      barkley: parsed.barkley,
+      family:     parsed.family,
+      spicy:      parsed.spicy,
+      trump:      parsed.trump,
+      scully:     parsed.scully,
+      cosell:     parsed.cosell,
+      underpants: parsed.underpants,
       generated_at: new Date().toISOString(),
     }
 

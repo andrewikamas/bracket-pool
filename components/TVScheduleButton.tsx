@@ -139,10 +139,19 @@ export default function TVScheduleButton() {
     fetchSchedule()
   }
 
-  // Group games by date
-  const thu = GAMES.slice(0, 16)
-  const fri = GAMES.slice(16, 32)
-  const sat = GAMES.slice(32)
+  // Group games by date and sort: today/future first, past days at bottom
+  const DAYS = [
+    { games: GAMES.slice(0, 16),  label: 'Thursday, March 19 — First Round',  date: new Date('2026-03-19') },
+    { games: GAMES.slice(16, 32), label: 'Friday, March 20 — First Round',    date: new Date('2026-03-20') },
+    { games: GAMES.slice(32),     label: 'Saturday, March 21 — Round of 32',  date: new Date('2026-03-21') },
+  ]
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const upcomingDays = DAYS.filter(d => d.date >= today)
+  const pastDays     = DAYS.filter(d => d.date < today)
+  const orderedDays  = [...upcomingDays, ...pastDays]
 
   const DaySection = ({ games, day }: { games: typeof GAMES; day: string }) => {
     // Parse "2:30 PM ET" style strings into sortable minutes-since-midnight
@@ -373,9 +382,13 @@ export default function TVScheduleButton() {
                 </div>
               ) : (
                 <>
-                  <DaySection games={thu} day="Thursday, March 19 — First Round" />
-                  <DaySection games={fri} day="Friday, March 20 — First Round" />
-                  <DaySection games={sat} day="Saturday, March 21 — Round of 32" />
+                  {orderedDays.map(({ games, label, date }) => (
+                    <DaySection
+                      key={label}
+                      games={games}
+                      day={date < today ? `${label} · Past` : label}
+                    />
+                  ))}
                 </>
               )}
             </div>
