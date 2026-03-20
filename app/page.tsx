@@ -134,6 +134,7 @@ function resolvePickedTeam(
 }
 
 
+interface LeaderboardEntry {
   bracket_id: string
   bracket_name: string
   display_name: string
