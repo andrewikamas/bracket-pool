@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 
 // 2026 NCAA Tournament Data (Round of 64 — skipping First Four)
 const REGIONS = {
@@ -196,6 +196,26 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
   // Prop-supplied schedule takes precedence over auto-fetched
   const mergedSchedule = { ...fetchedSchedule, ...gameSchedule };
 
+  // Build set of teams eliminated from tournament based on actual results
+  // Any team that lost a completed game is eliminated and should be shown as such
+  // in ALL future bracket slots, even unplayed ones
+  const eliminatedTeams = useMemo(() => {
+    const eliminated = new Set();
+    for (const [gameId, winnerChoice] of Object.entries(gameResults)) {
+      // Find the two teams in this game from REGIONS (R64 only — later rounds use bracket flow)
+      for (const region of Object.values(REGIONS)) {
+        const game = region.games.find((g) => g.id === gameId);
+        if (game) {
+          // loser is the other team
+          const loser = winnerChoice === 1 ? game.team2 : game.team1;
+          eliminated.add(loser);
+          break;
+        }
+      }
+    }
+    return eliminated;
+  }, [gameResults]);
+
   // Build full bracket structure with 6 rounds
   const getTeamForSlot = useCallback(
     (region, round, slot) => {
@@ -317,11 +337,19 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
           const canPick = !!team;
           const losingTeam = choice === 1 ? team2 : team1;
 
-          // Result states — only meaningful when game is complete
+          // Result states for THIS specific game
           const isActualWinner = result === choice;
           const isActualLoser  = result !== undefined && result !== choice;
           const pickedCorrectly = selected && isActualWinner;
           const pickedWrong     = selected && isActualLoser;
+
+          // A team can also be "dead" in a future round slot if they were
+          // knocked out in an earlier completed game — show them as eliminated
+          const isTeamEliminated = !!team && !isActualLoser && !isActualWinner && eliminatedTeams.has(team);
+
+          // Combined loser state: either lost this game, or was already eliminated
+          const showAsEliminated = isActualLoser || isTeamEliminated;
+          const showAsWinner     = isActualWinner && !isActualLoser;
 
           return (
             <div
@@ -352,24 +380,24 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 gap: 6,
                 padding: `0 ${compact ? 6 : 8}px`,
                 height: h,
-                // Winner: bright green. Loser: bright red. Future pick: region color. Default: grey.
-                background: pickedCorrectly ? "#dcfce7"
-                          : isActualLoser   ? "#fee2e2"
-                          : isActualWinner  ? "#f0fdf4"
-                          : selected        ? c.bg
+                background: pickedCorrectly   ? "#dcfce7"
+                          : showAsEliminated && selected ? "#fee2e2"
+                          : showAsEliminated  ? "#fff1f2"
+                          : showAsWinner      ? "#f0fdf4"
+                          : selected          ? c.bg
                           : "var(--color-background-secondary)",
                 borderLeft: `3px solid ${
-                  pickedCorrectly ? "#16a34a"
-                  : pickedWrong   ? "#dc2626"
-                  : isActualWinner ? "#86efac"
-                  : selected       ? c.border
+                  pickedCorrectly             ? "#16a34a"
+                  : showAsEliminated && selected ? "#dc2626"
+                  : showAsEliminated          ? "#fca5a5"
+                  : showAsWinner              ? "#86efac"
+                  : selected                  ? c.border
                   : "transparent"
                 }`,
                 borderBottom: choice === 1 ? `1px solid var(--color-border-tertiary)` : "none",
                 borderRadius: choice === 1 ? "6px 6px 0 0" : "0 0 6px 6px",
                 cursor: canPick ? "pointer" : "default",
-                // Losers very faded, future unpicked faded, everything else normal
-                opacity: isActualLoser ? 0.45 : faded ? 0.4 : team ? 1 : 0.25,
+                opacity: showAsEliminated ? 0.45 : faded ? 0.4 : team ? 1 : 0.25,
                 transition: "all 0.15s ease",
                 fontSize: compact ? 12 : 13,
               }}
@@ -378,9 +406,9 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 <span style={{
                   fontWeight: 500,
                   fontSize: compact ? 10 : 11,
-                  color: pickedCorrectly ? "#15803d"
-                       : isActualLoser   ? "#ef4444"
-                       : selected        ? c.text
+                  color: pickedCorrectly    ? "#15803d"
+                       : showAsEliminated  ? "#ef4444"
+                       : selected          ? c.text
                        : "var(--color-text-tertiary)",
                   minWidth: 16,
                   textAlign: "right",
@@ -389,13 +417,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 </span>
               )}
               <span style={{
-                fontWeight: (pickedCorrectly || isActualWinner) ? 700 : selected ? 500 : 400,
-                color: pickedCorrectly ? "#15803d"
-                     : isActualLoser   ? "#9ca3af"
-                     : selected        ? c.text
-                     : team            ? "var(--color-text-primary)"
+                fontWeight: (pickedCorrectly || showAsWinner) ? 700 : selected ? 500 : 400,
+                color: pickedCorrectly   ? "#15803d"
+                     : showAsEliminated  ? "#9ca3af"
+                     : selected          ? c.text
+                     : team              ? "var(--color-text-primary)"
                      : "var(--color-text-tertiary)",
-                textDecoration: isActualLoser ? "line-through" : "none",
+                textDecoration: showAsEliminated ? "line-through" : "none",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -409,8 +437,12 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
               {pickedWrong && (
                 <span style={{ marginLeft: "auto", fontSize: 13, color: "#dc2626" }}>✗</span>
               )}
-              {/* Future pick: subtle dot, NO checkmark (avoids confusion with results) */}
-              {selected && !result && (
+              {/* Dead pick in future round (team was eliminated earlier) */}
+              {isTeamEliminated && selected && (
+                <span style={{ marginLeft: "auto", fontSize: 13, color: "#dc2626" }}>✗</span>
+              )}
+              {/* Future pick: subtle dot — no checkmark to avoid confusion with results */}
+              {selected && !result && !isTeamEliminated && (
                 <span style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: c.border, display: "inline-block", flexShrink: 0 }} />
               )}
             </div>
