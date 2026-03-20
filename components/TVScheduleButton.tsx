@@ -37,6 +37,15 @@ const GAMES = [
   { id: 'M6',  t1: 'Virginia',      s1: 3,  t2: 'Wright St.',      s2: 14, region: 'Midwest', espnId: '' },
   { id: 'M7',  t1: 'Kentucky',      s1: 7,  t2: 'Santa Clara',     s2: 10, region: 'Midwest', espnId: '' },
   { id: 'M8',  t1: 'Iowa St.',      s1: 2,  t2: 'Tennessee St.',   s2: 15, region: 'Midwest', espnId: '' },
+  // Saturday March 21 — Round of 32 (teams from actual R64 results)
+  { id: 'MR32_1', t1: 'Michigan',      s1: 1,  t2: 'Saint Louis',  s2: 9,  region: 'Midwest', espnId: '' },
+  { id: 'ER32_1', t1: 'Michigan St.',  s1: 3,  t2: 'Louisville',   s2: 6,  region: 'East',    espnId: '' },
+  { id: 'ER32_2', t1: 'Duke',          s1: 1,  t2: 'TCU',          s2: 9,  region: 'East',    espnId: '' },
+  { id: 'SR32_1', t1: 'Houston',       s1: 2,  t2: 'Texas A&M',    s2: 10, region: 'South',   espnId: '' },
+  { id: 'WR32_1', t1: 'Gonzaga',       s1: 3,  t2: 'Texas',        s2: 11, region: 'West',    espnId: '' },
+  { id: 'SR32_2', t1: 'Illinois',      s1: 3,  t2: 'VCU',          s2: 11, region: 'South',   espnId: '' },
+  { id: 'SR32_3', t1: 'Nebraska',      s1: 4,  t2: 'Vanderbilt',   s2: 5,  region: 'South',   espnId: '' },
+  { id: 'WR32_2', t1: 'Arkansas',      s1: 4,  t2: 'High Point',   s2: 12, region: 'West',    espnId: '' },
 ]
 
 const REGION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -76,7 +85,7 @@ export default function TVScheduleButton() {
       for (const g of GAMES) espnIdToGameId[g.espnId] = g.id
 
       const results: Record<string, GameSchedule> = {}
-      for (const date of ['20260319', '20260320']) {
+      for (const date of ['20260319', '20260320', '20260321']) {
         const res = await fetch(
           `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
         )
@@ -87,21 +96,32 @@ export default function TVScheduleButton() {
           e.competitions?.[0]?.notes?.[0]?.headline?.includes("NCAA Men's Basketball Championship")
         )
         for (const event of events) {
-          const gameId = espnIdToGameId[event.id]
-          if (!gameId) continue
           const comp = event.competitions?.[0]
           const detail = event.status?.type?.detail ?? ''
           const timeMatch = detail.match(/at (.+)$/)
           const competitors = comp?.competitors ?? []
           const home = competitors.find((c: any) => c.homeAway === 'home')
           const away = competitors.find((c: any) => c.homeAway === 'away')
-          results[gameId] = {
+          const schedData: GameSchedule = {
             tv: comp?.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? null,
             game_time: timeMatch ? timeMatch[1] : null,
             venue: comp?.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : null,
             status: event.status?.type?.state,
             score1: home ? parseInt(home.score) || null : null,
             score2: away ? parseInt(away.score) || null : null,
+          }
+          // 1. Direct ESPN ID match
+          const gameIdFromId = espnIdToGameId[event.id]
+          if (gameIdFromId) { results[gameIdFromId] = schedData; continue }
+          // 2. Team name matching for games without confirmed ESPN IDs (R32+)
+          const locs = competitors.map((c: any) => c.team.location.toLowerCase())
+          for (const game of GAMES) {
+            if (results[game.id]) continue
+            const t1 = game.t1.toLowerCase()
+            const t2 = game.t2.toLowerCase()
+            const m1 = locs.some((l: string) => l.includes(t1.split(' ')[0]) || t1.includes(l))
+            const m2 = locs.some((l: string) => l.includes(t2.split(' ')[0]) || t2.includes(l))
+            if (m1 && m2) { results[game.id] = schedData; break }
           }
         }
       }
@@ -119,9 +139,10 @@ export default function TVScheduleButton() {
     fetchSchedule()
   }
 
-  // Group games by date then by time slot
+  // Group games by date
   const thu = GAMES.slice(0, 16)
-  const fri = GAMES.slice(16)
+  const fri = GAMES.slice(16, 32)
+  const sat = GAMES.slice(32)
 
   const DaySection = ({ games, day }: { games: typeof GAMES; day: string }) => {
     // Parse "2:30 PM ET" style strings into sortable minutes-since-midnight
@@ -325,8 +346,8 @@ export default function TVScheduleButton() {
               zIndex: 1,
             }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>📺 First Round TV Schedule</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Mar 19–20 · All times EDT</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>📺 Tournament TV Schedule</div>
+                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Mar 19–21 · All times EDT</div>
               </div>
               <button
                 onClick={() => setOpen(false)}
@@ -352,8 +373,9 @@ export default function TVScheduleButton() {
                 </div>
               ) : (
                 <>
-                  <DaySection games={thu} day="Thursday, March 19" />
-                  <DaySection games={fri} day="Friday, March 20" />
+                  <DaySection games={thu} day="Thursday, March 19 — First Round" />
+                  <DaySection games={fri} day="Friday, March 20 — First Round" />
+                  <DaySection games={sat} day="Saturday, March 21 — Round of 32" />
                 </>
               )}
             </div>
