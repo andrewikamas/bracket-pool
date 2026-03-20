@@ -85,7 +85,55 @@ function resolveChampion(picks: Record<string, number>): string | null {
   return r64Pick === 1 ? r64Game.team1 : r64Game.team2
 }
 
-interface LeaderboardEntry {
+// Given a bracket's picks and a gameId, return the actual team name the person
+// picked to WIN that game by tracing back through the bracket to the R64 origin.
+function resolvePickedTeam(
+  picks: Record<string, number>,
+  gameId: string
+): string | null {
+  const choice = picks[gameId]
+  if (!choice) return null
+
+  // R64 — direct lookup
+  const r64game = Object.values(REGIONS).flatMap(r => r.games).find(g => g.id === gameId)
+  if (r64game) return choice === 1 ? r64game.team1 : r64game.team2
+
+  // Final Four
+  if (gameId === 'FF1' || gameId === 'FF2') {
+    const regions = gameId === 'FF1' ? ['South', 'East'] : ['West', 'Midwest']
+    const region = regions[choice - 1]
+    return resolvePickedTeam(picks, `${region[0]}R3G0`)
+  }
+
+  // Championship
+  if (gameId === 'CHAMP') {
+    const ffGame = choice === 1 ? 'FF1' : 'FF2'
+    return resolvePickedTeam(picks, ffGame)
+  }
+
+  // R32 / S16 / E8 — format is e.g. "SR1G0", "ER2G1"
+  const m = gameId.match(/^([SEWM])R(\d+)G(\d+)$/)
+  if (!m) return null
+  const [, r, roundStr, slotStr] = m
+  const round = parseInt(roundStr)
+  const slot = parseInt(slotStr)
+
+  // Which of the two feeder games did this pick come from?
+  const feederSlot = slot * 2 + (choice - 1)
+  const feederGameId = round === 1
+    ? Object.values(REGIONS).flatMap(reg => reg.games).find(g => {
+        const regionLetter = g.id[0]
+        if (regionLetter !== r) return false
+        const gameNum = parseInt(g.id.slice(1)) - 1  // 0-indexed
+        return gameNum === feederSlot
+      })?.id ?? null
+    : `${r}R${round - 1}G${feederSlot}`
+
+  if (!feederGameId) return null
+  return resolvePickedTeam(picks, feederGameId)
+}
+
+
   bracket_id: string
   bracket_name: string
   display_name: string
@@ -164,28 +212,20 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       }
     }
 
-    // Max possible: current score + points still earnable
+    // Max possible: current score + points still earnable on unresolved games
+    // A pick is NOT earnable if the team being picked has already been eliminated
     let maxPossible = score
     for (const [gameId, choice] of Object.entries(pickMap)) {
-      if (results.has(gameId)) continue // already resolved — skip
+      if (results.has(gameId)) continue // already resolved — win or loss already counted
+
       const round = getRound(gameId)
       const pts = scoring[round.toString()] ?? 0
 
-      // For R64 picks, check if that team is eliminated
-      if (round === 0) {
-        const r64game = Object.values(REGIONS).flatMap(r => r.games).find(g => g.id === gameId)
-        if (r64game) {
-          const pickedTeam = choice === 1 ? r64game.team1 : r64game.team2
-          if (eliminatedTeams.has(pickedTeam)) continue // already out, can't earn these points
-        }
-      }
-      // For later rounds, check if the team they're riding forward was eliminated in R64
-      // Simple heuristic: trace R64 origin of their pick
-      if (round >= 1 && round <= 3) {
-        // Find which R64 team this pick traces back to
-        // We approximate: if their R64 pick for this region was eliminated, flag it
-        // Full tracing would require replicating bracket logic — skip for now
-      }
+      // Trace back to find which actual team this pick is riding on
+      const pickedTeam = resolvePickedTeam(pickMap, gameId)
+
+      // If that team is already eliminated, these points are gone
+      if (pickedTeam && eliminatedTeams.has(pickedTeam)) continue
 
       maxPossible += pts
     }
