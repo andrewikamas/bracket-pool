@@ -225,8 +225,9 @@ TONE 1 "family": Warm, enthusiastic. Celebrate leaders, highlight smart picks, p
 TONE 2 "spicy": Light affectionate trash talk at adults only. Tease bad adult picks, celebrate upsets that busted brackets — fun and loving, never mean.
 TONE 3 "nantz": Write exactly as Jim Nantz would call it on CBS — his signature warmth, gravitas, poetic cadence, and signature phrases like "Hello, friends." Reference the tournament with reverence. Make it sound like the final moments of a Masters broadcast but for this family pool.
 TONE 4 "socrates": Write as Socrates would — through probing questions and dialectic reasoning. Question what it truly means to win a bracket pool. Challenge the participants to examine their assumptions about picking teams. Use classical philosophical language but apply it absurdly to March Madness.
+TONE 5 "barkley": Write exactly as Charles Barkley would on Inside the NBA — loud, opinionated, self-contradicting, uses "turrible" unironically, drops "I may be wrong but..." before wild claims, calls out people by name for bad picks, brags about his own hypothetical bracket, and ends with something only tangentially related. Pure entertainment.
 
-Return ONLY valid JSON with exactly four string keys: "family", "spicy", "nantz", "socrates". No markdown, no explanation.`
+Return ONLY valid JSON with exactly five string keys: "family", "spicy", "nantz", "socrates", "barkley". No markdown, no explanation.`
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -237,7 +238,7 @@ Return ONLY valid JSON with exactly four string keys: "family", "spicy", "nantz"
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
+        max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -245,7 +246,7 @@ Return ONLY valid JSON with exactly four string keys: "family", "spicy", "nantz"
     const anthropicData = await anthropicRes.json()
     const rawText: string = anthropicData.content?.[0]?.text ?? ''
 
-    let parsed: { family: string; spicy: string; nantz: string; socrates: string }
+    let parsed: { family: string; spicy: string; nantz: string; socrates: string; barkley: string }
     try {
       parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim())
     } catch {
@@ -254,6 +255,7 @@ Return ONLY valid JSON with exactly four string keys: "family", "spicy", "nantz"
         spicy: rawText || "The bracket carnage hasn't started yet. Stay tuned.",
         nantz: rawText || 'Hello, friends. The tournament is upon us.',
         socrates: rawText || 'But what is a bracket, truly?',
+        barkley: rawText || "These brackets are TURRIBLE. I may be wrong but I am not.",
       }
     }
 
@@ -262,6 +264,7 @@ Return ONLY valid JSON with exactly four string keys: "family", "spicy", "nantz"
       spicy: parsed.spicy,
       nantz: parsed.nantz,
       socrates: parsed.socrates,
+      barkley: parsed.barkley,
       generated_at: new Date().toISOString(),
     }
 

@@ -79,9 +79,9 @@ function getRegionForGame(gameId) {
   return "FinalFour";
 }
 
-export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false, gameSchedule = {}, onPicksChange = null, onTiebreakerChange = null } = {}) {
+export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false, gameSchedule = {}, gameResults = {}, onPicksChange = null, onTiebreakerChange = null } = {}) {
   // gameSchedule: Record<gameId, { time, tv, venue, game_time }>
-  // Passed in from the server — overrides the static TBD values in REGIONS
+  // gameResults:  Record<gameId, 1 | 2> — actual tournament results for winner/loser highlighting
   const [picks, setPicks] = useState(initialPicks);
   const [activeRegion, setActiveRegion] = useState("South");
   const [showFinalFour, setShowFinalFour] = useState(false);
@@ -301,6 +301,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
 
   const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info }) => {
     const pick = picks[gameId];
+    const result = gameResults[gameId]; // 1, 2, or undefined — actual tournament result
     const regionKey = getRegionForGame(gameId);
     const c = COLORS[regionKey] || COLORS.FinalFour;
     const h = compact ? 32 : 36;
@@ -315,6 +316,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
           const faded = pick && !selected;
           const canPick = !!team;
           const losingTeam = choice === 1 ? team2 : team1;
+
+          // Result states — only meaningful when game is complete
+          const isActualWinner = result === choice;
+          const isActualLoser  = result !== undefined && result !== choice;
+          const pickedCorrectly = selected && isActualWinner;
+          const pickedWrong     = selected && isActualLoser;
+
           return (
             <div
               key={choice}
@@ -344,12 +352,20 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 gap: 6,
                 padding: `0 ${compact ? 6 : 8}px`,
                 height: h,
-                background: selected ? c.bg : "var(--color-background-secondary)",
-                borderLeft: `3px solid ${selected ? c.border : "transparent"}`,
+                background: pickedCorrectly ? "#f0fdf4"
+                          : isActualWinner  ? "#f0fdf4"
+                          : selected        ? c.bg
+                          : "var(--color-background-secondary)",
+                borderLeft: `3px solid ${
+                  pickedCorrectly ? "#16a34a"
+                  : isActualLoser ? "#fca5a5"
+                  : selected      ? c.border
+                  : "transparent"
+                }`,
                 borderBottom: choice === 1 ? `1px solid var(--color-border-tertiary)` : "none",
                 borderRadius: choice === 1 ? "6px 6px 0 0" : "0 0 6px 6px",
                 cursor: canPick ? "pointer" : "default",
-                opacity: faded ? 0.4 : team ? 1 : 0.25,
+                opacity: isActualLoser ? 0.35 : faded ? 0.4 : team ? 1 : 0.25,
                 transition: "all 0.15s ease",
                 fontSize: compact ? 12 : 13,
               }}
@@ -359,7 +375,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                   style={{
                     fontWeight: 500,
                     fontSize: compact ? 10 : 11,
-                    color: selected ? c.text : "var(--color-text-tertiary)",
+                    color: pickedCorrectly ? "#15803d" : selected ? c.text : "var(--color-text-tertiary)",
                     minWidth: 16,
                     textAlign: "right",
                   }}
@@ -369,8 +385,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
               )}
               <span
                 style={{
-                  fontWeight: selected ? 500 : 400,
-                  color: selected ? c.text : team ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
+                  fontWeight: (selected || isActualWinner) ? 500 : 400,
+                  color: pickedCorrectly ? "#15803d"
+                       : isActualLoser   ? "var(--color-text-tertiary)"
+                       : selected        ? c.text
+                       : team            ? "var(--color-text-primary)"
+                       : "var(--color-text-tertiary)",
+                  textDecoration: isActualLoser ? "line-through" : "none",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -378,7 +399,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
               >
                 {team || "TBD"}
               </span>
-              {selected && (
+              {pickedCorrectly && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "#16a34a" }}>✓</span>
+              )}
+              {pickedWrong && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "#dc2626" }}>✗</span>
+              )}
+              {selected && !result && (
                 <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
               )}
             </div>

@@ -12,12 +12,14 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
     { data: lockSetting },
     { data: authUser },
     { data: scheduleData },
+    { data: resultsData },
   ] = await Promise.all([
     supabase.from('brackets').select('id, name, tiebreaker, user_id, profiles(display_name)').eq('id', id).single(),
     supabase.from('picks').select('game_id, winner_choice').eq('bracket_id', id),
     supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     supabase.auth.getUser(),
     supabase.from('tournament_games').select('game_id, tv, game_time, venue').eq('round', 0),
+    supabase.from('tournament_games').select('game_id, winner').not('winner', 'is', null),
   ])
 
   if (!bracket) return (
@@ -40,6 +42,12 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
   const gameSchedule: Record<string, any> = {}
   for (const g of scheduleData ?? []) {
     if (g.game_id) gameSchedule[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
+  }
+
+  // Build game results: game_id -> 1 | 2 (actual winner)
+  const gameResults: Record<string, number> = {}
+  for (const g of resultsData ?? []) {
+    if (g.game_id && g.winner != null) gameResults[g.game_id] = g.winner
   }
 
   return (
@@ -70,6 +78,7 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
         initialTiebreaker={isLocked ? bracket.tiebreaker?.toString() ?? '' : ''}
         locked={true}
         gameSchedule={gameSchedule}
+        gameResults={gameResults}
       />
     </div>
   )

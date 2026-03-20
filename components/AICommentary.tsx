@@ -14,6 +14,7 @@ interface Commentary {
   spicy: string
   nantz: string
   socrates: string
+  barkley: string
   generated_at: string
 }
 
@@ -22,6 +23,7 @@ const TONES = [
   { key: 'spicy',    label: '🌶️ Spicy'    },
   { key: 'nantz',    label: '🎙️ Nantz'    },
   { key: 'socrates', label: '🏛️ Socrates' },
+  { key: 'barkley',  label: '🏀 Barkley'  },
 ] as const
 
 type Tone = typeof TONES[number]['key']
@@ -78,6 +80,8 @@ export default function AICommentary({ leaderboard }: { leaderboard: Leaderboard
     ? { bg: '#f0f4ff', border: '#c7d7fd', accent: '#3b5bdb', label: '#1e3a8a', text: '#1e1b4b', muted: '#3730a3' }
     : tone === 'socrates'
     ? { bg: '#f5f0ff', border: '#ddd6fe', accent: '#7c3aed', label: '#4c1d95', text: '#2e1065', muted: '#6d28d9' }
+    : tone === 'barkley'
+    ? { bg: '#fff8f0', border: '#fcd9a0', accent: '#c05a00', label: '#7c3a00', text: '#3b1a00', muted: '#b45309' }
     : { bg: '#fefce8', border: '#fde68a', accent: '#d97706', label: '#92400e', text: '#1c1917', muted: '#a16207' }
 
   if (status === 'loading') {
