@@ -352,61 +352,66 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 gap: 6,
                 padding: `0 ${compact ? 6 : 8}px`,
                 height: h,
-                background: pickedCorrectly ? "#f0fdf4"
+                // Winner: bright green. Loser: bright red. Future pick: region color. Default: grey.
+                background: pickedCorrectly ? "#dcfce7"
+                          : isActualLoser   ? "#fee2e2"
                           : isActualWinner  ? "#f0fdf4"
                           : selected        ? c.bg
                           : "var(--color-background-secondary)",
                 borderLeft: `3px solid ${
                   pickedCorrectly ? "#16a34a"
-                  : isActualLoser ? "#fca5a5"
-                  : selected      ? c.border
+                  : pickedWrong   ? "#dc2626"
+                  : isActualWinner ? "#86efac"
+                  : selected       ? c.border
                   : "transparent"
                 }`,
                 borderBottom: choice === 1 ? `1px solid var(--color-border-tertiary)` : "none",
                 borderRadius: choice === 1 ? "6px 6px 0 0" : "0 0 6px 6px",
                 cursor: canPick ? "pointer" : "default",
-                opacity: isActualLoser ? 0.35 : faded ? 0.4 : team ? 1 : 0.25,
+                // Losers very faded, future unpicked faded, everything else normal
+                opacity: isActualLoser ? 0.45 : faded ? 0.4 : team ? 1 : 0.25,
                 transition: "all 0.15s ease",
                 fontSize: compact ? 12 : 13,
               }}
             >
               {seed && (
-                <span
-                  style={{
-                    fontWeight: 500,
-                    fontSize: compact ? 10 : 11,
-                    color: pickedCorrectly ? "#15803d" : selected ? c.text : "var(--color-text-tertiary)",
-                    minWidth: 16,
-                    textAlign: "right",
-                  }}
-                >
+                <span style={{
+                  fontWeight: 500,
+                  fontSize: compact ? 10 : 11,
+                  color: pickedCorrectly ? "#15803d"
+                       : isActualLoser   ? "#ef4444"
+                       : selected        ? c.text
+                       : "var(--color-text-tertiary)",
+                  minWidth: 16,
+                  textAlign: "right",
+                }}>
                   {seed}
                 </span>
               )}
-              <span
-                style={{
-                  fontWeight: (selected || isActualWinner) ? 500 : 400,
-                  color: pickedCorrectly ? "#15803d"
-                       : isActualLoser   ? "var(--color-text-tertiary)"
-                       : selected        ? c.text
-                       : team            ? "var(--color-text-primary)"
-                       : "var(--color-text-tertiary)",
-                  textDecoration: isActualLoser ? "line-through" : "none",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
+              <span style={{
+                fontWeight: (pickedCorrectly || isActualWinner) ? 700 : selected ? 500 : 400,
+                color: pickedCorrectly ? "#15803d"
+                     : isActualLoser   ? "#9ca3af"
+                     : selected        ? c.text
+                     : team            ? "var(--color-text-primary)"
+                     : "var(--color-text-tertiary)",
+                textDecoration: isActualLoser ? "line-through" : "none",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
                 {team || "TBD"}
               </span>
+              {/* Only show result indicators for completed games */}
               {pickedCorrectly && (
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "#16a34a" }}>✓</span>
+                <span style={{ marginLeft: "auto", fontSize: 13, color: "#16a34a" }}>✓</span>
               )}
               {pickedWrong && (
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "#dc2626" }}>✗</span>
+                <span style={{ marginLeft: "auto", fontSize: 13, color: "#dc2626" }}>✗</span>
               )}
+              {/* Future pick: subtle dot, NO checkmark (avoids confusion with results) */}
               {selected && !result && (
-                <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
+                <span style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: c.border, display: "inline-block", flexShrink: 0 }} />
               )}
             </div>
           );

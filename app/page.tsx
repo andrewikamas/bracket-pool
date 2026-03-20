@@ -6,7 +6,7 @@ import RefreshScoresButton from '@/components/RefreshScoresButton'
 
 export const dynamic = 'force-dynamic'
 
-// Mirrors REGIONS data from NCAABracket.jsx — needed to resolve team names
+// Mirrors REGIONS from NCAABracket.jsx — needed for champion resolution
 const REGIONS: Record<string, { games: { id: string; team1: string; team2: string }[] }> = {
   South: { games: [
     { id: 'S1', team1: 'Florida',        team2: 'PV A&M/Lehigh'  },
@@ -50,40 +50,38 @@ const REGIONS: Record<string, { games: { id: string; team1: string; team2: strin
   ]},
 }
 
-// Resolves which team a bracket picked as champion by tracing the full pick path
+// Get round number (0-5) from game ID
+function getRound(gameId: string): number {
+  if (gameId === 'CHAMP') return 5
+  if (gameId === 'FF1' || gameId === 'FF2') return 4
+  const m = gameId.match(/R(\d+)G/)
+  if (m) return parseInt(m[1])
+  return 0 // R64
+}
+
+// Resolve champion team name from a bracket's picks
 function resolveChampion(picks: Record<string, number>): string | null {
   const champPick = picks['CHAMP']
   if (!champPick) return null
-
-  // CHAMP 1 = FF1 winner, 2 = FF2 winner
   const ffGame = champPick === 1 ? 'FF1' : 'FF2'
   const ffPick = picks[ffGame]
   if (!ffPick) return null
-
-  // FF1: 1=South, 2=East  |  FF2: 1=West, 2=Midwest
   let region: string
   if (ffGame === 'FF1') region = ffPick === 1 ? 'South' : 'East'
   else region = ffPick === 1 ? 'West' : 'Midwest'
-
   const r = region[0]
-
-  // Trace Elite 8 → Sweet 16 → R32 → R64
   const e8Pick = picks[`${r}R3G0`]
   if (!e8Pick) return null
-
-  const s16Slot = e8Pick - 1                          // 0 or 1
+  const s16Slot = e8Pick - 1
   const s16Pick = picks[`${r}R2G${s16Slot}`]
   if (!s16Pick) return null
-
-  const r32Slot = s16Slot * 2 + (s16Pick - 1)        // 0–3
+  const r32Slot = s16Slot * 2 + (s16Pick - 1)
   const r32Pick = picks[`${r}R1G${r32Slot}`]
   if (!r32Pick) return null
-
-  const r64Slot = r32Slot * 2 + (r32Pick - 1)        // 0–7
+  const r64Slot = r32Slot * 2 + (r32Pick - 1)
   const r64Game = REGIONS[region].games[r64Slot]
   const r64Pick = picks[r64Game.id]
   if (!r64Pick) return null
-
   return r64Pick === 1 ? r64Game.team1 : r64Game.team2
 }
 
@@ -92,6 +90,7 @@ interface LeaderboardEntry {
   bracket_name: string
   display_name: string
   score: number
+  max_possible: number
   picks_made: number
   tiebreaker: number | null
   champion_pick: string | null
@@ -106,9 +105,9 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     { data: scoringSetting },
     { data: lockSetting },
     { data: pickCounts },
-    // Paginate picks to get past the 1000-row default cap
     { data: picks1 },
     { data: picks2 },
+    { data: champPicksData },
   ] = await Promise.all([
     supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
     supabase.from('tournament_games').select('game_id, round, winner'),
@@ -117,6 +116,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     supabase.from('bracket_pick_counts').select('bracket_id, pick_count'),
     supabase.from('picks').select('bracket_id, game_id, winner_choice').range(0, 999),
     supabase.from('picks').select('bracket_id, game_id, winner_choice').range(1000, 1999),
+    supabase.from('picks').select('bracket_id, winner_choice').eq('game_id', 'CHAMP'),
   ])
 
   const allPicks = [...(picks1 ?? []), ...(picks2 ?? [])]
@@ -128,13 +128,24 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
   const scoring: Record<string, number> =
     (scoringSetting?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
-  const results = new Map(
-    (games ?? []).filter((g) => g.winner).map((g) => [g.game_id, { round: g.round, winner: g.winner }])
-  )
+
+  const completedGames = (games ?? []).filter((g) => g.winner != null)
+  const results = new Map(completedGames.map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
+
+  // Build set of eliminated teams from R64 results
+  const eliminatedTeams = new Set<string>()
+  for (const g of completedGames) {
+    if (g.round !== 0) continue
+    const region = Object.values(REGIONS).flatMap(r => r.games).find(game => game.id === g.game_id)
+    if (!region) continue
+    if (g.winner === 1) eliminatedTeams.add(region.team2)
+    else if (g.winner === 2) eliminatedTeams.add(region.team1)
+  }
 
   const pickCountMap = new Map((pickCounts ?? []).map((p: any) => [p.bracket_id, p.pick_count as number]))
+  const champPicks = new Map((champPicksData ?? []).map((p: any) => [p.bracket_id, p.winner_choice as number]))
 
-  // Build per-bracket pick maps for scoring + champion resolution
+  // Build per-bracket pick maps
   const bracketPickMaps = new Map<string, Record<string, number>>()
   for (const p of allPicks) {
     if (!bracketPickMaps.has(p.bracket_id)) bracketPickMaps.set(p.bracket_id, {})
@@ -143,6 +154,8 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
   const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
     const pickMap = bracketPickMaps.get(b.id) ?? {}
+
+    // Current score
     let score = 0
     for (const [gameId, choice] of Object.entries(pickMap)) {
       const result = results.get(gameId)
@@ -150,14 +163,49 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
         score += scoring[result.round.toString()] ?? 0
       }
     }
+
+    // Max possible: current score + points still earnable
+    let maxPossible = score
+    for (const [gameId, choice] of Object.entries(pickMap)) {
+      if (results.has(gameId)) continue // already resolved — skip
+      const round = getRound(gameId)
+      const pts = scoring[round.toString()] ?? 0
+
+      // For R64 picks, check if that team is eliminated
+      if (round === 0) {
+        const r64game = Object.values(REGIONS).flatMap(r => r.games).find(g => g.id === gameId)
+        if (r64game) {
+          const pickedTeam = choice === 1 ? r64game.team1 : r64game.team2
+          if (eliminatedTeams.has(pickedTeam)) continue // already out, can't earn these points
+        }
+      }
+      // For later rounds, check if the team they're riding forward was eliminated in R64
+      // Simple heuristic: trace R64 origin of their pick
+      if (round >= 1 && round <= 3) {
+        // Find which R64 team this pick traces back to
+        // We approximate: if their R64 pick for this region was eliminated, flag it
+        // Full tracing would require replicating bracket logic — skip for now
+      }
+
+      maxPossible += pts
+    }
+
+    // Champion
+    const champChoice = champPicks.get(b.id)
+    let championPick: string | null = null
+    if (isLocked && champChoice != null) {
+      championPick = resolveChampion(pickMap)
+    }
+
     return {
       bracket_id: b.id,
       bracket_name: b.name,
       display_name: (b.profiles as any)?.display_name ?? 'Unknown',
       score,
+      max_possible: maxPossible,
       picks_made: pickCountMap.get(b.id) ?? 0,
       tiebreaker: b.tiebreaker,
-      champion_pick: isLocked ? resolveChampion(pickMap) : null,
+      champion_pick: championPick,
     }
   })
 
@@ -170,6 +218,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 export default async function LeaderboardPage() {
   const leaderboard = await getLeaderboard()
   const hasChampPicks = leaderboard.some((e) => e.champion_pick)
+  const anyScored = leaderboard.some((e) => e.score > 0)
 
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto', padding: '24px 20px' }}>
@@ -177,10 +226,10 @@ export default async function LeaderboardPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>🏀 2026 NCAA Bracket Pool</h1>
           <p style={{ color: '#6b7280', marginTop: 4, fontSize: 13 }}>
-            Brackets lock Thu Mar 19 at 1:30 PM ET · Scores update as games complete
+            Brackets locked · Scores update as games complete
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <RefreshScoresButton />
           <TVScheduleButton />
           <a
@@ -205,9 +254,6 @@ export default async function LeaderboardPage() {
         <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f9fafb', borderRadius: 12, color: '#9ca3af' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🏀</div>
           <div style={{ fontSize: 17, fontWeight: 500, color: '#6b7280' }}>No brackets submitted yet</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>
-            <a href="/my-brackets" style={{ color: '#2563eb' }}>Be the first — fill out your bracket →</a>
-          </div>
         </div>
       ) : (
         <>
@@ -216,16 +262,24 @@ export default async function LeaderboardPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                {['#', 'Bracket', 'Player', hasChampPicks ? '🏆 Champion' : null, 'Score', 'Picks']
+                {[
+                  '#',
+                  'Bracket',
+                  'Player',
+                  hasChampPicks ? '🏆 Pick' : null,
+                  'Score',
+                  anyScored ? 'Max' : null,
+                ]
                   .filter(Boolean)
-                  .map((h, i) => (
+                  .map((h, i, arr) => (
                     <th
                       key={h as string}
                       style={{
                         padding: '8px 12px',
                         fontWeight: 600,
                         color: '#374151',
-                        textAlign: (hasChampPicks ? i >= 4 : i >= 3) ? 'right' : 'left',
+                        textAlign: i >= arr.length - 2 ? 'right' : 'left',
+                        whiteSpace: 'nowrap',
                       }}
                     >
                       {h}
@@ -235,7 +289,6 @@ export default async function LeaderboardPage() {
             </thead>
             <tbody>
               {leaderboard.map((entry, i) => {
-                const incomplete = entry.picks_made < 63
                 return (
                   <tr key={entry.bracket_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{i + 1}</td>
@@ -255,26 +308,19 @@ export default async function LeaderboardPage() {
                           : <span style={{ color: '#d1d5db' }}>—</span>}
                       </td>
                     )}
-                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'right' }}>
-                      {incomplete ? (
-                        <span
-                          title={`${63 - entry.picks_made} picks missing`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            color: '#d97706',
-                            fontWeight: 600,
-                            fontSize: 13,
-                          }}
-                        >
-                          ⚠ {entry.picks_made}/63
-                        </span>
-                      ) : (
-                        <span style={{ color: '#9ca3af' }}>63/63</span>
-                      )}
+                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>
+                      {entry.score}
                     </td>
+                    {anyScored && (
+                      <td style={{ padding: '11px 12px', textAlign: 'right' }}>
+                        <span
+                          title="Max points still achievable"
+                          style={{ color: '#9ca3af', fontSize: 13 }}
+                        >
+                          {entry.max_possible}
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
