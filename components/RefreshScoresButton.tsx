@@ -73,9 +73,9 @@ export default function RefreshScoresButton() {
           let gameId: string | null = ESPN_ID_MAP[event.id] ?? null
           if (!gameId) {
             for (const [gid, hints] of Object.entries(GAME_HINTS)) {
-              const allMatch = hints.every(hint =>
-                teamLocations.some(l => l.includes(hint.toLowerCase()) || hint.toLowerCase().includes(l)) ||
-                teamNames.some(n => n.includes(hint.toLowerCase()))
+              const allMatch = hints.every((hint: string) =>
+                teamLocations.some((l: string) => l.includes(hint.toLowerCase()) || hint.toLowerCase().includes(l)) ||
+                teamNames.some((n: string) => n.includes(hint.toLowerCase()))
               )
               if (allMatch) { gameId = gid; break }
             }
