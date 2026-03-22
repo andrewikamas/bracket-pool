@@ -249,24 +249,40 @@ async function processESPNEvents(events: ESPNEvent[]) {
   }
 
   // ── Write updates to Supabase ───────────────────────────────────────────
+  // CRITICAL: Never overwrite a game that already has a final result.
+  // This prevents stale ESPN re-fetches from corrupting manually-fixed data.
+
+  // Build set of games already finalized in DB
+  const alreadyFinal = new Set<string>()
+  for (const g of dbGames) {
+    if (g.status === 'final' && g.winner != null) alreadyFinal.add(g.game_id)
+  }
 
   let updatedCount = 0
   let errorCount = 0
   const updateErrors: string[] = []
 
   for (const u of updates) {
+    const isAlreadyFinal = alreadyFinal.has(u.game_id)
+
     const payload: Record<string, unknown> = {
       espn_event_id: u.espn_event_id,
-      status: u.status,
       tv: u.tv,
       venue: u.venue,
       game_time: u.game_time,
-      score1: u.score1,
-      score2: u.score2,
       updated_at: new Date().toISOString(),
     }
 
-    if (u.winner !== null) payload.winner = u.winner
+    if (isAlreadyFinal) {
+      // Game already has a verified final result — only update metadata, never touch scores/winner
+      matchLog.push(`${u.game_id}: already final — metadata only`)
+    } else {
+      // Game not yet finalized — safe to write scores and winner
+      payload.status = u.status
+      payload.score1 = u.score1
+      payload.score2 = u.score2
+      if (u.winner !== null) payload.winner = u.winner
+    }
 
     const { error } = await supabase
       .from('tournament_games')
