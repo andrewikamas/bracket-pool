@@ -197,6 +197,30 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
   // Prop-supplied schedule takes precedence over auto-fetched
   const mergedSchedule = { ...fetchedSchedule, ...gameSchedule };
 
+  // Team name → seed lookup (for showing seeds when actual teams replace user picks)
+  const teamSeedMap = {};
+  for (const reg of Object.values(REGIONS)) {
+    for (const g of reg.games) {
+      teamSeedMap[g.team1] = g.seed1;
+      teamSeedMap[g.team2] = g.seed2;
+    }
+  }
+
+  // Get the ACTUAL team in a R32+ matchup position (from real game results).
+  // Returns the team name that actually advanced, or null if the feeder game hasn't been decided.
+  const getActualTeamForPosition = useCallback((region, round, slot, position) => {
+    // position: 1 or 2 (which team in the matchup)
+    const feederSlot = slot * 2 + (position - 1);
+    if (round === 1) {
+      // Feeder is an R64 game
+      const feederGame = REGIONS[region].games[feederSlot];
+      return gameResults[feederGame.id] || null;
+    }
+    // Feeder is a later-round game
+    const feederGameId = `${region[0]}R${round - 1}G${feederSlot}`;
+    return gameResults[feederGameId] || null;
+  }, [gameResults]);
+
   // Build full bracket structure with 6 rounds
   const getTeamForSlot = useCallback(
     (region, round, slot) => {
@@ -300,147 +324,98 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
 
   const totalPicks = Object.keys(picks).length;
 
-  const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info }) => {
-    const pick = picks[gameId];
-    const winnerName = gameResults[gameId]; // winning team's NAME, or undefined if not decided
+  const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info, userPickedTeam }) => {
+    const winnerName = gameResults[gameId]; // winning team's NAME, or undefined
     const regionKey = getRegionForGame(gameId);
     const c = COLORS[regionKey] || COLORS.FinalFour;
     const h = compact ? 32 : 36;
+    const hasResult = !!winnerName;
+
+    // Is the user's picked team even in this matchup?
+    const pickIsAlive = !userPickedTeam || team1 === userPickedTeam || team2 === userPickedTeam;
 
     return (
       <div style={{ margin: compact ? "2px 0" : "4px 0", minWidth: compact ? 140 : 160 }}>
         {[
-          { team: team1, seed: seed1, choice: 1 },
-          { team: team2, seed: seed2, choice: 2 },
-        ].map(({ team, seed, choice }) => {
-          const selected = pick === choice;
-          const faded = pick && !selected;
-          const canPick = !!team;
-          const losingTeam = choice === 1 ? team2 : team1;
-
-          // Result-based styling: compare by team NAME, not by 1/2 choice
-          const hasResult = !!winnerName;
+          { team: team1, seed: seed1 },
+          { team: team2, seed: seed2 },
+        ].map(({ team, seed }, idx) => {
+          const isUserPick = !!team && team === userPickedTeam;
           const isActualWinner = hasResult && team === winnerName;
           const isActualLoser = hasResult && !!team && team !== winnerName;
-          const pickCorrect = hasResult && selected && team === winnerName;
-          const pickWrong = hasResult && selected && team !== winnerName;
+          const pickCorrect = isUserPick && isActualWinner;
+          const pickWrong = isUserPick && isActualLoser;
+          const canPick = !!team;
+          const losingTeam = idx === 0 ? team2 : team1;
 
-          // Choose background
           let bg, borderColor;
           if (pickCorrect) {
-            bg = "#ecfdf5";
-            borderColor = "#10b981";
+            bg = "#ecfdf5"; borderColor = "#10b981";
           } else if (pickWrong) {
-            bg = "#fef2f2";
-            borderColor = "#ef4444";
-          } else if (selected) {
-            bg = c.bg;
-            borderColor = c.border;
+            bg = "#fef2f2"; borderColor = "#ef4444";
+          } else if (isUserPick && !hasResult) {
+            bg = c.bg; borderColor = c.border;
           } else {
-            bg = "var(--color-background-secondary)";
-            borderColor = "transparent";
+            bg = "var(--color-background-secondary)"; borderColor = "transparent";
           }
 
-          // Opacity
-          let opacity;
-          if (isActualLoser && !selected) {
-            opacity = 0.35;
-          } else if (faded && !hasResult) {
-            opacity = 0.4;
-          } else if (team) {
-            opacity = 1;
-          } else {
-            opacity = 0.25;
-          }
+          let opacity = 1;
+          if (isActualLoser) opacity = 0.3;
+          else if (!team) opacity = 0.25;
 
           return (
             <div
-              key={choice}
+              key={idx}
               onClick={() => {
-                if (!canPick) return;
-                if (losingTeam === "Michigan St." && picks[gameId] !== choice) {
-                  setShowDisappointment(true);
-                }
-                if (team === "Michigan" && gameId === "MR3G0" && picks[gameId] !== choice) {
-                  setShowJPPride(true);
-                }
-                if (team === "Wisconsin" && gameId === "W3" && picks[gameId] !== choice) {
-                  setShowPukallCheers(true);
-                }
-                if (team === "Michigan St." && gameId === "CHAMP" && picks[gameId] !== choice) {
-                  setShowMSUChamp(true);
-                }
-                handlePick(gameId, choice);
+                if (!canPick || locked) return;
+                if (losingTeam === "Michigan St." && !isUserPick) setShowDisappointment(true);
+                if (team === "Michigan" && gameId === "MR3G0" && !isUserPick) setShowJPPride(true);
+                if (team === "Wisconsin" && gameId === "W3" && !isUserPick) setShowPukallCheers(true);
+                if (team === "Michigan St." && gameId === "CHAMP" && !isUserPick) setShowMSUChamp(true);
+                handlePick(gameId, idx + 1);
               }}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: `0 ${compact ? 6 : 8}px`,
-                height: h,
+                display: "flex", alignItems: "center", gap: 6,
+                padding: `0 ${compact ? 6 : 8}px`, height: h,
                 background: bg,
                 borderLeft: `3px solid ${borderColor}`,
-                borderBottom: choice === 1 ? `1px solid var(--color-border-tertiary)` : "none",
-                borderRadius: choice === 1 ? "6px 6px 0 0" : "0 0 6px 6px",
-                cursor: canPick ? "pointer" : "default",
-                opacity,
-                transition: "all 0.15s ease",
+                borderBottom: idx === 0 ? `1px solid var(--color-border-tertiary)` : "none",
+                borderRadius: idx === 0 ? "6px 6px 0 0" : "0 0 6px 6px",
+                cursor: canPick && !locked ? "pointer" : "default",
+                opacity, transition: "all 0.15s ease",
                 fontSize: compact ? 12 : 13,
               }}
             >
               {seed && (
-                <span
-                  style={{
-                    fontWeight: isActualWinner ? 600 : 500,
-                    fontSize: compact ? 10 : 11,
-                    color: pickCorrect ? "#059669" : pickWrong ? "#dc2626" : selected ? c.text : "var(--color-text-tertiary)",
-                    minWidth: 16,
-                    textAlign: "right",
-                  }}
-                >
-                  {seed}
-                </span>
+                <span style={{
+                  fontWeight: isActualWinner ? 600 : 500,
+                  fontSize: compact ? 10 : 11,
+                  color: pickCorrect ? "#059669" : pickWrong ? "#dc2626" : isUserPick ? c.text : "var(--color-text-tertiary)",
+                  minWidth: 16, textAlign: "right",
+                }}>{seed}</span>
               )}
-              <span
-                style={{
-                  fontWeight: isActualWinner ? 600 : selected ? 500 : 400,
-                  color: pickCorrect ? "#065f46" : pickWrong ? "#991b1b" : selected ? c.text : team ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {team || "TBD"}
-              </span>
-              {pickCorrect && (
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 700 }}>✓</span>
-              )}
-              {pickWrong && (
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "#ef4444", fontWeight: 700 }}>✗</span>
-              )}
-              {selected && !hasResult && !locked && (
-                <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
-              )}
+              <span style={{
+                fontWeight: isActualWinner ? 600 : isUserPick ? 500 : 400,
+                color: pickCorrect ? "#065f46" : pickWrong ? "#991b1b" : isUserPick ? c.text : team ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                textDecoration: isActualLoser ? "line-through" : "none",
+              }}>{team || "TBD"}</span>
+              {pickCorrect && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 700 }}>✓</span>}
+              {pickWrong && <span style={{ marginLeft: "auto", fontSize: 11, color: "#ef4444", fontWeight: 700 }}>✗</span>}
+              {isUserPick && !hasResult && !locked && <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>}
             </div>
           );
         })}
+        {locked && userPickedTeam && !pickIsAlive && (
+          <div style={{ fontSize: 10, color: "#ef4444", padding: "2px 8px", opacity: 0.7 }}>
+            ✗ Picked: {userPickedTeam} (eliminated)
+          </div>
+        )}
         {info && !isMobile && (
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              flexWrap: "wrap",
-              padding: "3px 8px",
-              fontSize: 10,
-              color: "var(--color-text-tertiary)",
-              lineHeight: 1.3,
-            }}
-          >
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "3px 8px", fontSize: 10, color: "var(--color-text-tertiary)", lineHeight: 1.3 }}>
             <span>{info.date}</span>
             {(info.time !== "TBD" || info.game_time) && <span>· {info.game_time ?? info.time}</span>}
-            {(info.tv && info.tv !== "TBD") && (
-              <span style={{ fontWeight: 500, color: "var(--color-text-secondary)" }}>· {info.tv}</span>
-            )}
+            {(info.tv && info.tv !== "TBD") && <span style={{ fontWeight: 500, color: "var(--color-text-secondary)" }}>· {info.tv}</span>}
             <span>· {info.venue}</span>
           </div>
         )}
@@ -452,6 +427,17 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
     const data = REGIONS[region];
     const c = COLORS[region];
     const rounds = [0, 1, 2, 3]; // R64, R32, S16, E8
+
+    // Compute the user's picked team name for a given game
+    const getUserPickedTeam = (gameId, round, slot) => {
+      const pickChoice = picks[gameId];
+      if (!pickChoice) return null;
+      const t = getTeamForSlot(region, round, slot);
+      return pickChoice === 1 ? t.team1 : t.team2;
+    };
+
+    // R64 matchup height for spacing calculations
+    const r64Height = isMobile ? 586 : 746;
 
     return (
       <div style={{ padding: "0 0 16px" }}>
@@ -485,17 +471,20 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "space-around",
-                    minHeight: round === 0 ? "auto" : round === 1 ? 560 : round === 2 ? 560 : 560,
+                    minHeight: round === 0 ? "auto" : r64Height,
                     gap: round === 0 ? 6 : 0,
                   }}
                 >
                   {Array.from({ length: gamesInRound }).map((_, slot) => {
-                    let gameId, team1, seed1, team2, seed2, info;
+                    let gameId, team1, seed1, team2, seed2, info, userPickedTeam;
                     if (round === 0) {
                       const g = data.games[slot];
                       gameId = g.id;
                       team1 = g.team1; seed1 = g.seed1;
                       team2 = g.team2; seed2 = g.seed2;
+                      // For R64, user's pick is straightforward
+                      const p = picks[g.id];
+                      userPickedTeam = p === 1 ? g.team1 : p === 2 ? g.team2 : null;
                       const sched = mergedSchedule[g.id];
                       info = {
                         date:  g.date,
@@ -505,9 +494,24 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                       };
                     } else {
                       gameId = `${region[0]}R${round}G${slot}`;
-                      const t = getTeamForSlot(region, round, slot);
-                      team1 = t.team1; seed1 = t.seed1;
-                      team2 = t.team2; seed2 = t.seed2;
+                      userPickedTeam = getUserPickedTeam(gameId, round, slot);
+
+                      if (locked) {
+                        // Show ACTUAL teams from results (who really advanced)
+                        const actual1 = getActualTeamForPosition(region, round, slot, 1);
+                        const actual2 = getActualTeamForPosition(region, round, slot, 2);
+                        // Fall back to user's picks if no result yet
+                        const picked = getTeamForSlot(region, round, slot);
+                        team1 = actual1 ?? picked.team1;
+                        seed1 = actual1 ? (teamSeedMap[actual1] ?? null) : picked.seed1;
+                        team2 = actual2 ?? picked.team2;
+                        seed2 = actual2 ? (teamSeedMap[actual2] ?? null) : picked.seed2;
+                      } else {
+                        // Edit mode: show user's picks as before
+                        const t = getTeamForSlot(region, round, slot);
+                        team1 = t.team1; seed1 = t.seed1;
+                        team2 = t.team2; seed2 = t.seed2;
+                      }
                     }
                     return (
                       <Matchup
@@ -520,6 +524,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                         round={round}
                         compact={round === 0}
                         info={info}
+                        userPickedTeam={userPickedTeam}
                       />
                     );
                   })}
@@ -533,6 +538,12 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
   };
 
   const getRegionWinner = (region) => {
+    // In locked mode, use the actual E8 game result if available
+    if (locked) {
+      const e8Result = gameResults[`${region[0]}R3G0`];
+      if (e8Result) return { team: e8Result, seed: teamSeedMap[e8Result] ?? null };
+    }
+    // Fall back to user's picks
     const key = `${region[0]}R3G0`;
     const pick = picks[key];
     if (!pick) return { team: null, seed: null };
@@ -540,6 +551,15 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
     if (pick === 1 && t.team1) return { team: t.team1, seed: t.seed1 };
     if (pick === 2 && t.team2) return { team: t.team2, seed: t.seed2 };
     return { team: null, seed: null };
+  };
+
+  // For Final Four, also compute user's picked winners
+  const getUserRegionWinner = (region) => {
+    const key = `${region[0]}R3G0`;
+    const pick = picks[key];
+    if (!pick) return null;
+    const t = getTeamForSlot(region, 3, 0);
+    return pick === 1 ? t.team1 : t.team2;
   };
 
   const f4 = {
@@ -690,6 +710,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 team2={f4.east.team}
                 seed2={f4.east.seed}
                 info={{ date: "Sat Apr 4", time: "6:00 PM ET", tv: "TBS", venue: "Indianapolis, IN" }}
+                userPickedTeam={picks["FF1"] === 1 ? getUserRegionWinner("South") : picks["FF1"] === 2 ? getUserRegionWinner("East") : null}
               />
               <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2 }}>
                 South winner vs East winner
@@ -707,6 +728,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 team2={f4.midwest.team}
                 seed2={f4.midwest.seed}
                 info={{ date: "Sat Apr 4", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }}
+                userPickedTeam={picks["FF2"] === 1 ? getUserRegionWinner("West") : picks["FF2"] === 2 ? getUserRegionWinner("Midwest") : null}
               />
               <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2 }}>
                 West winner vs Midwest winner
@@ -718,14 +740,36 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 Championship
               </div>
               {(() => {
-                const ff1Pick = picks["FF1"];
-                const ff2Pick = picks["FF2"];
                 let t1 = null, s1 = null, t2 = null, s2 = null;
-                if (ff1Pick === 1) { t1 = f4.south.team; s1 = f4.south.seed; }
-                else if (ff1Pick === 2) { t1 = f4.east.team; s1 = f4.east.seed; }
-                if (ff2Pick === 1) { t2 = f4.west.team; s2 = f4.west.seed; }
-                else if (ff2Pick === 2) { t2 = f4.midwest.team; s2 = f4.midwest.seed; }
-                return <Matchup gameId="CHAMP" team1={t1} seed1={s1} team2={t2} seed2={s2} info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }} />;
+                if (locked) {
+                  // Use actual FF results if available
+                  const ff1Winner = gameResults["FF1"];
+                  const ff2Winner = gameResults["FF2"];
+                  if (ff1Winner) { t1 = ff1Winner; s1 = teamSeedMap[ff1Winner] ?? null; }
+                  if (ff2Winner) { t2 = ff2Winner; s2 = teamSeedMap[ff2Winner] ?? null; }
+                }
+                // Fall back to user's FF picks
+                if (!t1) {
+                  const ff1Pick = picks["FF1"];
+                  if (ff1Pick === 1) { t1 = f4.south.team; s1 = f4.south.seed; }
+                  else if (ff1Pick === 2) { t1 = f4.east.team; s1 = f4.east.seed; }
+                }
+                if (!t2) {
+                  const ff2Pick = picks["FF2"];
+                  if (ff2Pick === 1) { t2 = f4.west.team; s2 = f4.west.seed; }
+                  else if (ff2Pick === 2) { t2 = f4.midwest.team; s2 = f4.midwest.seed; }
+                }
+                // User's championship pick
+                const champPick = picks["CHAMP"];
+                let userPickedChamp = null;
+                if (champPick === 1) {
+                  const ff1Pick = picks["FF1"];
+                  userPickedChamp = ff1Pick === 1 ? getUserRegionWinner("South") : ff1Pick === 2 ? getUserRegionWinner("East") : null;
+                } else if (champPick === 2) {
+                  const ff2Pick = picks["FF2"];
+                  userPickedChamp = ff2Pick === 1 ? getUserRegionWinner("West") : ff2Pick === 2 ? getUserRegionWinner("Midwest") : null;
+                }
+                return <Matchup gameId="CHAMP" team1={t1} seed1={s1} team2={t2} seed2={s2} info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }} userPickedTeam={userPickedChamp} />;
               })()}
               {/* Tiebreaker */}
               <div style={{ marginTop: 8 }}>
