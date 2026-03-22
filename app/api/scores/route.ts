@@ -1,24 +1,22 @@
 // app/api/scores/route.ts
 //
-// Fetches ESPN tournament scores and syncs them into Supabase tournament_games.
+// Syncs ESPN tournament scores into Supabase tournament_games.
 //
-// Usage:
-//   GET /api/scores          → sync today ± 1 day (fast, use on leaderboard load)
-//   GET /api/scores?all=1    → sync all tournament dates (use once to seed)
-//   GET /api/scores?date=20260319  → sync a specific date
+// Two entry points:
+//   GET  /api/scores           → fetches ESPN server-side (may fail on Vercel due to IP blocks)
+//   POST /api/scores           → accepts ESPN events from client-side fetch (preferred)
 //
-// What it does:
-//   1. Fetches ESPN scoreboard for the requested dates
-//   2. Matches each event to a tournament_games row (by espn_event_id or team name)
-//   3. Updates: espn_event_id, tv, venue, game_time, status, score1, score2, winner
-//   4. Propagates winners → next round team slots
-//   5. Validates all completed games for score/winner consistency
-//   6. Returns warnings array in response for UI to display
+// Both use the same safe processing pipeline:
+//   1. Match each ESPN event to a tournament_games row by name (no home/away guessing)
+//   2. Validate scores are consistent with winner before writing
+//   3. Skip writes for ambiguous or failed name matches (protect existing data)
+//   4. Propagate winners → next round team slots
+//   5. Post-update validation of all completed games
+//   6. Return warnings array so UI can surface problems
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
-  ESPN_SCOREBOARD,
   TOURNAMENT_DATES,
   R64_GAME_MAP,
   nameMatches,
@@ -29,7 +27,6 @@ import {
   getGameTimeFromEvent,
   getStatusFromEvent,
   getScoresFromEvent,
-  getNextRoundSlot,
   type ESPNEvent,
 } from '@/lib/espn'
 
@@ -111,27 +108,27 @@ function matchEventToGameId(
   dbGames: DBGame[],
   eventIdIndex: Map<string, string>
 ): string | null {
-  // 1. Direct espn_event_id lookup (fastest, most reliable)
+  // 1. Direct espn_event_id lookup
   if (eventIdIndex.has(event.id)) return eventIdIndex.get(event.id)!
 
   const comp = event.competitions?.[0]
   if (!comp) return null
 
   const competitors = comp.competitors
-  const knownTeams = competitors.filter(c => c.team.id !== '-2')
+  const knownTeams = competitors.filter((c: any) => c.team.id !== '-2')
   if (knownTeams.length === 0) return null
 
   // 2. R64: match by team names from static map
   for (const [gameId, [t1Terms, t2Terms]] of Object.entries(R64_GAME_MAP)) {
-    const locs = competitors.map(c => c.team.location)
-    const names = competitors.map(c => c.team.displayName)
-    const hasT1 = locs.some(l => nameMatches(l, t1Terms)) || names.some(n => nameMatches(n, t1Terms))
-    const hasTBD = competitors.some(c => c.team.id === '-2')
-    const hasT2 = hasTBD || locs.some(l => nameMatches(l, t2Terms)) || names.some(n => nameMatches(n, t2Terms))
+    const locs = competitors.map((c: any) => c.team.location)
+    const names = competitors.map((c: any) => c.team.displayName)
+    const hasT1 = locs.some((l: string) => nameMatches(l, t1Terms)) || names.some((n: string) => nameMatches(n, t1Terms))
+    const hasTBD = competitors.some((c: any) => c.team.id === '-2')
+    const hasT2 = hasTBD || locs.some((l: string) => nameMatches(l, t2Terms)) || names.some((n: string) => nameMatches(n, t2Terms))
     if (hasT1 && hasT2) return gameId
   }
 
-  // 3. R32+: match by team names in tournament_games DB
+  // 3. R32+: match by team names in tournament_games DB (normalized)
   for (const dbGame of dbGames) {
     if (dbGame.round === 0) continue
     if (!dbGame.team1 || !dbGame.team2) continue
@@ -139,239 +136,266 @@ function matchEventToGameId(
 
     const t1 = normalizeName(dbGame.team1)
     const t2 = normalizeName(dbGame.team2)
-    const locs = competitors.map(c => normalizeName(c.team.location))
-    const names = competitors.map(c => normalizeName(c.team.displayName))
-    const matchT1 = locs.some(l => l.includes(t1) || t1.includes(l)) ||
-                    names.some(n => n.includes(t1) || t1.includes(n))
-    const matchT2 = locs.some(l => l.includes(t2) || t2.includes(l)) ||
-                    names.some(n => n.includes(t2) || t2.includes(n))
+    const locs = competitors.map((c: any) => normalizeName(c.team.location))
+    const dnames = competitors.map((c: any) => normalizeName(c.team.displayName))
+    const matchT1 = locs.some((l: string) => l.includes(t1) || t1.includes(l)) ||
+                    dnames.some((n: string) => n.includes(t1) || t1.includes(n))
+    const matchT2 = locs.some((l: string) => l.includes(t2) || t2.includes(l)) ||
+                    dnames.some((n: string) => n.includes(t2) || t2.includes(n))
     if (matchT1 && matchT2) return dbGame.game_id
   }
 
   return null
 }
 
-// ─── Route handler ────────────────────────────────────────────────────────────
+// ─── Shared processing pipeline ───────────────────────────────────────────────
+// Used by both GET and POST handlers
 
-export async function GET(request: Request) {
-  const url = new URL(request.url)
+async function processESPNEvents(events: ESPNEvent[]) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
-  try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+  // Check manual-mode flag
+  const { data: modeSetting } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'results_mode')
+    .single()
 
-    // Check manual-mode flag
-    const { data: modeSetting } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', 'results_mode')
-      .single()
+  if (modeSetting?.value === 'manual') {
+    return { mode: 'manual', message: 'ESPN sync disabled — using manual mode.' }
+  }
 
-    if (modeSetting?.value === 'manual') {
-      return NextResponse.json({ mode: 'manual', message: 'ESPN sync disabled — using manual mode.' })
+  // Load all tournament_games from DB
+  const { data: dbGames, error: dbError } = await supabase
+    .from('tournament_games')
+    .select('game_id, round, region, team1, team2, winner, status, espn_event_id')
+
+  if (dbError || !dbGames) {
+    return { error: 'Could not load tournament games from DB', detail: dbError?.message ?? 'unknown' }
+  }
+
+  // Build espn_event_id → game_id index
+  const eventIdIndex = new Map<string, string>()
+  for (const g of dbGames) {
+    if (g.espn_event_id) eventIdIndex.set(g.espn_event_id, g.game_id)
+  }
+
+  // ── Match events and build update payloads ──────────────────────────────
+
+  type GameUpdate = {
+    game_id: string
+    espn_event_id: string
+    status: string
+    tv: string
+    venue: string
+    game_time: string
+    score1: number | null
+    score2: number | null
+    winner: number | null
+  }
+
+  const updates: GameUpdate[] = []
+  const matchLog: string[] = []
+  const warnings: string[] = []
+  const skipped: string[] = []
+
+  for (const event of events) {
+    const gameId = matchEventToGameId(event, dbGames, eventIdIndex)
+    if (!gameId) continue
+
+    eventIdIndex.set(event.id, gameId)
+
+    const dbGame = dbGames.find(g => g.game_id === gameId)
+    const scoreResult = getScoresFromEvent(event, gameId, dbGame?.team1, dbGame?.team2)
+    const status = getStatusFromEvent(event)
+
+    if (scoreResult.warning) {
+      warnings.push(scoreResult.warning)
     }
 
-    // Load all tournament_games from DB
-    const { data: dbGames, error: dbError } = await supabase
-      .from('tournament_games')
-      .select('game_id, round, region, team1, team2, winner, status, espn_event_id')
-
-    if (dbError || !dbGames) {
-      return NextResponse.json({
-        error: 'Could not load tournament games from DB',
-        detail: dbError?.message ?? 'unknown',
-      }, { status: 500 })
-    }
-
-    // Build espn_event_id → game_id index
-    const eventIdIndex = new Map<string, string>()
-    for (const g of dbGames) {
-      if (g.espn_event_id) eventIdIndex.set(g.espn_event_id, g.game_id)
-    }
-
-    // Fetch ESPN
-    const dates = getDatesToFetch(url)
-    const events = await fetchESPNDays(dates)
-
-    // ── Match events and build update payloads ────────────────────────────────
-
-    type GameUpdate = {
-      game_id: string
-      espn_event_id: string
-      status: string
-      tv: string
-      venue: string
-      game_time: string
-      score1: number | null
-      score2: number | null
-      winner: number | null
-    }
-
-    const updates: GameUpdate[] = []
-    const matchLog: string[] = []
-    const warnings: string[] = []
-    const skipped: string[] = []
-
-    for (const event of events) {
-      const gameId = matchEventToGameId(event, dbGames, eventIdIndex)
-      if (!gameId) continue
-
-      eventIdIndex.set(event.id, gameId)
-
-      const dbGame = dbGames.find(g => g.game_id === gameId)
-      const scoreResult = getScoresFromEvent(event, gameId, dbGame?.team1, dbGame?.team2)
-      const status = getStatusFromEvent(event)
-
-      // ── If name matching returned a warning, log it ────────────────────────
-      if (scoreResult.warning) {
-        warnings.push(scoreResult.warning)
-      }
-
-      // ── CRITICAL: If game is final but we got no winner, SKIP the write ────
-      // This prevents overwriting good data with bad data from a failed match
-      if (status === 'final' && scoreResult.winner === null) {
-        skipped.push(`${gameId}: final but no winner — skipping DB write to protect existing data`)
-        // Still update metadata (tv, venue, time, espn_event_id) but NOT scores/winner
-        const { error } = await supabase
-          .from('tournament_games')
-          .update({
-            espn_event_id: event.id,
-            tv: getTVFromEvent(event),
-            venue: getVenueFromEvent(event),
-            game_time: getGameTimeFromEvent(event),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('game_id', gameId)
-        if (error) console.error(`Metadata update failed for ${gameId}:`, error)
-        continue
-      }
-
-      updates.push({
-        game_id: gameId,
-        espn_event_id: event.id,
-        status,
-        tv: getTVFromEvent(event),
-        venue: getVenueFromEvent(event),
-        game_time: getGameTimeFromEvent(event),
-        score1: scoreResult.score1,
-        score2: scoreResult.score2,
-        winner: scoreResult.winner,
-      })
-
-      matchLog.push(`${gameId} → ESPN ${event.id} (${event.name}) [${status}]`)
-    }
-
-    // ── Write updates to Supabase ─────────────────────────────────────────────
-
-    let updatedCount = 0
-    let errorCount = 0
-    const updateErrors: string[] = []
-
-    for (const u of updates) {
-      const payload: Record<string, unknown> = {
-        espn_event_id: u.espn_event_id,
-        status: u.status,
-        tv: u.tv,
-        venue: u.venue,
-        game_time: u.game_time,
-        score1: u.score1,
-        score2: u.score2,
-        updated_at: new Date().toISOString(),
-      }
-
-      // Only overwrite winner if ESPN has a definitive result
-      if (u.winner !== null) payload.winner = u.winner
-
+    // CRITICAL: If game is final but we got no winner, SKIP the score write
+    if (status === 'final' && scoreResult.winner === null) {
+      skipped.push(`${gameId}: final but no winner — skipping DB write to protect existing data`)
       const { error } = await supabase
         .from('tournament_games')
-        .update(payload)
-        .eq('game_id', u.game_id)
-
-      if (error) {
-        errorCount++
-        updateErrors.push(`${u.game_id}: ${error.message}`)
-        console.error(`Update failed for ${u.game_id}:`, error)
-      } else {
-        updatedCount++
-      }
+        .update({
+          espn_event_id: event.id,
+          tv: getTVFromEvent(event),
+          venue: getVenueFromEvent(event),
+          game_time: getGameTimeFromEvent(event),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', gameId)
+      if (error) console.error(`Metadata update failed for ${gameId}:`, error)
+      continue
     }
 
-    // ── Propagate ALL completed game winners → next round team slots ──────────
-
-    const { data: completedGames } = await supabase
-      .from('tournament_games')
-      .select('game_id, round, team1, team2, winner')
-      .not('winner', 'is', null)
-
-    let propagated = 0
-
-    for (const game of completedGames ?? []) {
-      if (!game.winner) continue
-      const winnerName = game.winner === 1 ? game.team1 : game.team2
-      if (!winnerName) continue
-
-      const next = NEXT_GAME_MAP[game.game_id]
-      if (!next) continue
-
-      const field = next.teamSlot === 1 ? 'team1' : 'team2'
-
-      const { error } = await supabase
-        .from('tournament_games')
-        .update({ [field]: winnerName })
-        .eq('game_id', next.nextGameId)
-        .is(field, null) // don't overwrite if already set
-
-      if (!error) propagated++
-    }
-
-    // ── Post-update validation: check ALL completed games for consistency ─────
-
-    const { data: allCompleted } = await supabase
-      .from('tournament_games')
-      .select('game_id, team1, team2, score1, score2, winner')
-      .not('winner', 'is', null)
-
-    const inconsistencies: string[] = []
-    for (const g of allCompleted ?? []) {
-      if (g.score1 == null || g.score2 == null) continue
-      if (g.winner === 1 && g.score1 < g.score2) {
-        inconsistencies.push(
-          `${g.game_id}: ${g.team1} marked winner but scored ${g.score1} vs ${g.team2} ${g.score2}`
-        )
-      } else if (g.winner === 2 && g.score2 < g.score1) {
-        inconsistencies.push(
-          `${g.game_id}: ${g.team2} marked winner but scored ${g.score2} vs ${g.team1} ${g.score1}`
-        )
-      }
-    }
-
-    if (inconsistencies.length > 0) {
-      warnings.push(...inconsistencies.map(i => `⚠ DB INCONSISTENCY: ${i}`))
-    }
-
-    // ── Response ──────────────────────────────────────────────────────────────
-
-    return NextResponse.json({
-      success: true,
-      datesChecked: dates,
-      espnEventsFound: events.length,
-      gamesMatched: updates.length,
-      gamesUpdated: updatedCount,
-      errors: errorCount,
-      propagated,
-      matches: matchLog,
-      warnings: warnings.length > 0 ? warnings : undefined,
-      skipped: skipped.length > 0 ? skipped : undefined,
-      updateErrors: updateErrors.length > 0 ? updateErrors : undefined,
-      // Summary for UI
-      completedGames: (allCompleted ?? []).length,
-      hasInconsistencies: inconsistencies.length > 0,
+    updates.push({
+      game_id: gameId,
+      espn_event_id: event.id,
+      status,
+      tv: getTVFromEvent(event),
+      venue: getVenueFromEvent(event),
+      game_time: getGameTimeFromEvent(event),
+      score1: scoreResult.score1,
+      score2: scoreResult.score2,
+      winner: scoreResult.winner,
     })
 
+    matchLog.push(`${gameId} → ESPN ${event.id} (${event.name}) [${status}]`)
+  }
+
+  // ── Write updates to Supabase ───────────────────────────────────────────
+
+  let updatedCount = 0
+  let errorCount = 0
+  const updateErrors: string[] = []
+
+  for (const u of updates) {
+    const payload: Record<string, unknown> = {
+      espn_event_id: u.espn_event_id,
+      status: u.status,
+      tv: u.tv,
+      venue: u.venue,
+      game_time: u.game_time,
+      score1: u.score1,
+      score2: u.score2,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (u.winner !== null) payload.winner = u.winner
+
+    const { error } = await supabase
+      .from('tournament_games')
+      .update(payload)
+      .eq('game_id', u.game_id)
+
+    if (error) {
+      errorCount++
+      updateErrors.push(`${u.game_id}: ${error.message}`)
+      console.error(`Update failed for ${u.game_id}:`, error)
+    } else {
+      updatedCount++
+    }
+  }
+
+  // ── Propagate ALL completed game winners → next round team slots ────────
+
+  const { data: completedGames } = await supabase
+    .from('tournament_games')
+    .select('game_id, round, team1, team2, winner')
+    .not('winner', 'is', null)
+
+  let propagated = 0
+
+  for (const game of completedGames ?? []) {
+    if (!game.winner) continue
+    const winnerName = game.winner === 1 ? game.team1 : game.team2
+    if (!winnerName) continue
+
+    const next = NEXT_GAME_MAP[game.game_id]
+    if (!next) continue
+
+    const field = next.teamSlot === 1 ? 'team1' : 'team2'
+
+    const { error } = await supabase
+      .from('tournament_games')
+      .update({ [field]: winnerName })
+      .eq('game_id', next.nextGameId)
+      .is(field, null)
+
+    if (!error) propagated++
+  }
+
+  // ── Post-update validation ──────────────────────────────────────────────
+
+  const { data: allCompleted } = await supabase
+    .from('tournament_games')
+    .select('game_id, team1, team2, score1, score2, winner')
+    .not('winner', 'is', null)
+
+  const inconsistencies: string[] = []
+  for (const g of allCompleted ?? []) {
+    if (g.score1 == null || g.score2 == null) continue
+    if (g.winner === 1 && g.score1 < g.score2) {
+      inconsistencies.push(
+        `${g.game_id}: ${g.team1} marked winner but scored ${g.score1} vs ${g.team2} ${g.score2}`
+      )
+    } else if (g.winner === 2 && g.score2 < g.score1) {
+      inconsistencies.push(
+        `${g.game_id}: ${g.team2} marked winner but scored ${g.score2} vs ${g.team1} ${g.score1}`
+      )
+    }
+  }
+
+  if (inconsistencies.length > 0) {
+    warnings.push(...inconsistencies.map(i => `⚠ DB INCONSISTENCY: ${i}`))
+  }
+
+  return {
+    success: true,
+    espnEventsFound: events.length,
+    gamesMatched: updates.length,
+    gamesUpdated: updatedCount,
+    errors: errorCount,
+    propagated,
+    matches: matchLog,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    skipped: skipped.length > 0 ? skipped : undefined,
+    updateErrors: updateErrors.length > 0 ? updateErrors : undefined,
+    completedGames: (allCompleted ?? []).length,
+    hasInconsistencies: inconsistencies.length > 0,
+  }
+}
+
+// ─── GET handler (server-side ESPN fetch — may fail on Vercel) ────────────────
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url)
+    const dates = getDatesToFetch(url)
+    const events = await fetchESPNDays(dates)
+    const result = await processESPNEvents(events)
+
+    if ('error' in result) {
+      return NextResponse.json(result, { status: 500 })
+    }
+
+    return NextResponse.json({ ...result, datesChecked: dates, source: 'server' })
   } catch (err) {
     console.error('ESPN sync error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
+
+// ─── POST handler (client-side ESPN fetch — preferred) ────────────────────────
+//
+// The client fetches ESPN from the browser (bypasses Vercel IP blocks),
+// then sends the raw event data here for safe matching and DB writes.
+//
+// Expected body: { events: ESPNEvent[] }
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const events: ESPNEvent[] = body.events ?? []
+
+    if (events.length === 0) {
+      return NextResponse.json({ error: 'No ESPN events provided' }, { status: 400 })
+    }
+
+    const result = await processESPNEvents(events)
+
+    if ('error' in result) {
+      return NextResponse.json(result, { status: 500 })
+    }
+
+    return NextResponse.json({ ...result, source: 'client' })
+  } catch (err) {
+    console.error('ESPN sync (POST) error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
