@@ -81,7 +81,7 @@ function getRegionForGame(gameId) {
 
 export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false, gameSchedule = {}, gameResults = {}, onPicksChange = null, onTiebreakerChange = null } = {}) {
   // gameSchedule: Record<gameId, { time, tv, venue, game_time }>
-  // gameResults: Record<gameId, number> — actual winner (1 or 2) for completed games
+  // gameResults: Record<gameId, string> — winning team NAME for completed games
   // Passed in from the server — overrides the static TBD values in REGIONS
   const [picks, setPicks] = useState(initialPicks);
   const [activeRegion, setActiveRegion] = useState("South");
@@ -302,7 +302,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
 
   const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info }) => {
     const pick = picks[gameId];
-    const result = gameResults[gameId]; // 1 or 2 if game is decided, undefined otherwise
+    const winnerName = gameResults[gameId]; // winning team's NAME, or undefined if not decided
     const regionKey = getRegionForGame(gameId);
     const c = COLORS[regionKey] || COLORS.FinalFour;
     const h = compact ? 32 : 36;
@@ -318,21 +318,21 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
           const canPick = !!team;
           const losingTeam = choice === 1 ? team2 : team1;
 
-          // Result-based styling (only when game has a result AND this team was picked)
-          const hasResult = result != null;
-          const isActualWinner = hasResult && result === choice;
-          const isActualLoser = hasResult && result !== choice;
-          const pickCorrect = hasResult && selected && result === choice;
-          const pickWrong = hasResult && selected && result !== choice;
+          // Result-based styling: compare by team NAME, not by 1/2 choice
+          const hasResult = !!winnerName;
+          const isActualWinner = hasResult && team === winnerName;
+          const isActualLoser = hasResult && !!team && team !== winnerName;
+          const pickCorrect = hasResult && selected && team === winnerName;
+          const pickWrong = hasResult && selected && team !== winnerName;
 
-          // Choose background: result colors override region colors when applicable
+          // Choose background
           let bg, borderColor;
           if (pickCorrect) {
-            bg = "#ecfdf5";         // green-50
-            borderColor = "#10b981"; // green-500
+            bg = "#ecfdf5";
+            borderColor = "#10b981";
           } else if (pickWrong) {
-            bg = "#fef2f2";         // red-50
-            borderColor = "#ef4444"; // red-500
+            bg = "#fef2f2";
+            borderColor = "#ef4444";
           } else if (selected) {
             bg = c.bg;
             borderColor = c.border;
@@ -341,7 +341,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
             borderColor = "transparent";
           }
 
-          // Opacity: fade eliminated teams (actual losers in decided games)
+          // Opacity
           let opacity;
           if (isActualLoser && !selected) {
             opacity = 0.35;
@@ -412,14 +412,12 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
               >
                 {team || "TBD"}
               </span>
-              {/* Show result icon when game is decided and this team was picked */}
               {pickCorrect && (
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 700 }}>✓</span>
               )}
               {pickWrong && (
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "#ef4444", fontWeight: 700 }}>✗</span>
               )}
-              {/* Show normal checkmark for picks on undecided games */}
               {selected && !hasResult && (
                 <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
               )}

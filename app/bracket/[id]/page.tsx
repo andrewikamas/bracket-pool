@@ -19,7 +19,8 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
     supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     supabase.auth.getUser(),
     supabase.from('tournament_games').select('game_id, tv, game_time, venue').eq('round', 0),
-    supabase.from('tournament_games').select('game_id, winner').not('winner', 'is', null),
+    // Fetch team names along with winner so we can resolve the winning team's NAME
+    supabase.from('tournament_games').select('game_id, winner, team1, team2').not('winner', 'is', null),
   ])
 
   if (!bracket) return (
@@ -44,10 +45,15 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
     if (g.game_id) gameSchedule[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
   }
 
-  // Build game results: game_id -> 1 | 2 (actual winner)
-  const gameResults: Record<string, number> = {}
+  // Build game results: game_id -> winning team NAME (not 1/2 choice)
+  // This is critical: the bracket component's team ordering differs from the DB's,
+  // so we must pass the actual team name to compare against.
+  const gameResults: Record<string, string> = {}
   for (const g of resultsData ?? []) {
-    if (g.game_id && g.winner != null) gameResults[g.game_id] = g.winner
+    if (g.game_id && g.winner != null) {
+      const winnerName = g.winner === 1 ? g.team1 : g.team2
+      if (winnerName) gameResults[g.game_id] = winnerName
+    }
   }
 
   return (
