@@ -102,7 +102,7 @@ export default function RefreshScoresButton() {
       }
 
       // Step 2: Send events to server for safe matching + DB writes
-      setStep(`Processing ${events.length} games...`)
+      setStep(`Syncing ${events.length} ESPN events...`)
       const res = await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

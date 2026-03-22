@@ -418,7 +418,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
               {pickWrong && (
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "#ef4444", fontWeight: 700 }}>✗</span>
               )}
-              {selected && !hasResult && (
+              {selected && !hasResult && !locked && (
                 <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
               )}
             </div>
