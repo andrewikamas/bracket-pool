@@ -1,49 +1,252 @@
 import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
+import ChampionBadge from '@/components/ChampionBadge'
 import RefreshScoresButton from '@/components/RefreshScoresButton'
+
+export const dynamic = 'force-dynamic'
+
+// Mirrors REGIONS from NCAABracket.jsx — needed for champion resolution
+const REGIONS: Record<string, { games: { id: string; team1: string; team2: string }[] }> = {
+  South: { games: [
+    { id: 'S1', team1: 'Florida',        team2: 'PV A&M/Lehigh'  },
+    { id: 'S2', team1: 'Clemson',         team2: 'Iowa'            },
+    { id: 'S3', team1: 'Vanderbilt',      team2: 'McNeese'         },
+    { id: 'S4', team1: 'Nebraska',        team2: 'Troy'            },
+    { id: 'S5', team1: 'North Carolina',  team2: 'VCU'             },
+    { id: 'S6', team1: 'Illinois',        team2: 'Penn'            },
+    { id: 'S7', team1: "Saint Mary's",    team2: 'Texas A&M'       },
+    { id: 'S8', team1: 'Houston',         team2: 'Idaho'           },
+  ]},
+  East: { games: [
+    { id: 'E1', team1: 'Duke',            team2: 'Siena'           },
+    { id: 'E2', team1: 'Ohio St.',        team2: 'TCU'             },
+    { id: 'E3', team1: "St. John's",      team2: 'Northern Iowa'   },
+    { id: 'E4', team1: 'Kansas',          team2: 'Cal Baptist'     },
+    { id: 'E5', team1: 'Louisville',      team2: 'South Florida'   },
+    { id: 'E6', team1: 'Michigan St.',    team2: 'N. Dakota St.'   },
+    { id: 'E7', team1: 'UCLA',            team2: 'UCF'             },
+    { id: 'E8', team1: 'UConn',           team2: 'Furman'          },
+  ]},
+  West: { games: [
+    { id: 'W1', team1: 'Arizona',         team2: 'LIU'             },
+    { id: 'W2', team1: 'Villanova',       team2: 'Utah St.'        },
+    { id: 'W3', team1: 'Wisconsin',       team2: 'High Point'      },
+    { id: 'W4', team1: 'Arkansas',        team2: 'Hawaii'          },
+    { id: 'W5', team1: 'BYU',            team2: 'Texas/NC State'  },
+    { id: 'W6', team1: 'Gonzaga',         team2: 'Kennesaw St.'    },
+    { id: 'W7', team1: 'Miami (FL)',      team2: 'Missouri'        },
+    { id: 'W8', team1: 'Purdue',          team2: 'Queens'          },
+  ]},
+  Midwest: { games: [
+    { id: 'M1', team1: 'Michigan',        team2: 'UMBC/Howard'     },
+    { id: 'M2', team1: 'Georgia',         team2: 'Saint Louis'     },
+    { id: 'M3', team1: 'Texas Tech',      team2: 'Akron'           },
+    { id: 'M4', team1: 'Alabama',         team2: 'Hofstra'         },
+    { id: 'M5', team1: 'Tennessee',       team2: 'SMU/Miami (OH)'  },
+    { id: 'M6', team1: 'Virginia',        team2: 'Wright St.'      },
+    { id: 'M7', team1: 'Kentucky',        team2: 'Santa Clara'     },
+    { id: 'M8', team1: 'Iowa St.',        team2: 'Tennessee St.'   },
+  ]},
+}
+
+// Get round number (0-5) from game ID
+function getRound(gameId: string): number {
+  if (gameId === 'CHAMP') return 5
+  if (gameId === 'FF1' || gameId === 'FF2') return 4
+  const m = gameId.match(/R(\d+)G/)
+  if (m) return parseInt(m[1])
+  return 0 // R64
+}
+
+// Resolve champion team name from a bracket's picks
+function resolveChampion(picks: Record<string, number>): string | null {
+  const champPick = picks['CHAMP']
+  if (!champPick) return null
+  const ffGame = champPick === 1 ? 'FF1' : 'FF2'
+  const ffPick = picks[ffGame]
+  if (!ffPick) return null
+  let region: string
+  if (ffGame === 'FF1') region = ffPick === 1 ? 'South' : 'East'
+  else region = ffPick === 1 ? 'West' : 'Midwest'
+  const r = region[0]
+  const e8Pick = picks[`${r}R3G0`]
+  if (!e8Pick) return null
+  const s16Slot = e8Pick - 1
+  const s16Pick = picks[`${r}R2G${s16Slot}`]
+  if (!s16Pick) return null
+  const r32Slot = s16Slot * 2 + (s16Pick - 1)
+  const r32Pick = picks[`${r}R1G${r32Slot}`]
+  if (!r32Pick) return null
+  const r64Slot = r32Slot * 2 + (r32Pick - 1)
+  const r64Game = REGIONS[region].games[r64Slot]
+  const r64Pick = picks[r64Game.id]
+  if (!r64Pick) return null
+  return r64Pick === 1 ? r64Game.team1 : r64Game.team2
+}
+
+// Given a bracket's picks and a gameId, return the actual team name the person
+// picked to WIN that game by tracing back through the bracket to the R64 origin.
+function resolvePickedTeam(
+  picks: Record<string, number>,
+  gameId: string
+): string | null {
+  const choice = picks[gameId]
+  if (!choice) return null
+
+  // R64 — direct lookup
+  const r64game = Object.values(REGIONS).flatMap(r => r.games).find(g => g.id === gameId)
+  if (r64game) return choice === 1 ? r64game.team1 : r64game.team2
+
+  // Final Four
+  if (gameId === 'FF1' || gameId === 'FF2') {
+    const regions = gameId === 'FF1' ? ['South', 'East'] : ['West', 'Midwest']
+    const region = regions[choice - 1]
+    return resolvePickedTeam(picks, `${region[0]}R3G0`)
+  }
+
+  // Championship
+  if (gameId === 'CHAMP') {
+    const ffGame = choice === 1 ? 'FF1' : 'FF2'
+    return resolvePickedTeam(picks, ffGame)
+  }
+
+  // R32 / S16 / E8 — format is e.g. "SR1G0", "ER2G1"
+  const m = gameId.match(/^([SEWM])R(\d+)G(\d+)$/)
+  if (!m) return null
+  const [, r, roundStr, slotStr] = m
+  const round = parseInt(roundStr)
+  const slot = parseInt(slotStr)
+
+  // Which of the two feeder games did this pick come from?
+  const feederSlot = slot * 2 + (choice - 1)
+  const feederGameId = round === 1
+    ? Object.values(REGIONS).flatMap(reg => reg.games).find(g => {
+        const regionLetter = g.id[0]
+        if (regionLetter !== r) return false
+        const gameNum = parseInt(g.id.slice(1)) - 1  // 0-indexed
+        return gameNum === feederSlot
+      })?.id ?? null
+    : `${r}R${round - 1}G${feederSlot}`
+
+  if (!feederGameId) return null
+  return resolvePickedTeam(picks, feederGameId)
+}
+
 
 interface LeaderboardEntry {
   bracket_id: string
   bracket_name: string
   display_name: string
   score: number
+  max_possible: number
   picks_made: number
   tiebreaker: number | null
+  champion_pick: string | null
 }
 
 async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const supabase = await createClient()
 
-  const [{ data: brackets }, { data: games }, { data: allPicks }, { data: scoringSetting }] =
-    await Promise.all([
-      supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
-      supabase.from('tournament_games').select('game_id, round, winner'),
-      supabase.from('picks').select('bracket_id, game_id, winner_choice'),
-      supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
-    ])
+  const [
+    { data: brackets },
+    { data: games },
+    { data: scoringSetting },
+    { data: lockSetting },
+    { data: pickCounts },
+    { data: picks1 },
+    { data: picks2 },
+    { data: champPicksData },
+  ] = await Promise.all([
+    supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
+    supabase.from('tournament_games').select('game_id, round, winner'),
+    supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
+    supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
+    supabase.from('bracket_pick_counts').select('bracket_id, pick_count'),
+    supabase.from('picks').select('bracket_id, game_id, winner_choice').range(0, 999),
+    supabase.from('picks').select('bracket_id, game_id, winner_choice').range(1000, 1999),
+    supabase.from('picks').select('bracket_id, winner_choice').eq('game_id', 'CHAMP'),
+  ])
+
+  const allPicks = [...(picks1 ?? []), ...(picks2 ?? [])]
+
+  const lockTime = lockSetting?.value
+    ? new Date(lockSetting.value as string)
+    : new Date('2026-03-19T17:30:00Z')
+  const isLocked = new Date() >= lockTime
 
   const scoring: Record<string, number> =
     (scoringSetting?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
-  const results = new Map((games ?? []).map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
-  const picks = allPicks ?? []
+
+  const completedGames = (games ?? []).filter((g) => g.winner != null)
+  const results = new Map(completedGames.map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
+
+  // Build set of eliminated teams from R64 results
+  const eliminatedTeams = new Set<string>()
+  for (const g of completedGames) {
+    if (g.round !== 0) continue
+    const region = Object.values(REGIONS).flatMap(r => r.games).find(game => game.id === g.game_id)
+    if (!region) continue
+    if (g.winner === 1) eliminatedTeams.add(region.team2)
+    else if (g.winner === 2) eliminatedTeams.add(region.team1)
+  }
+
+  const pickCountMap = new Map((pickCounts ?? []).map((p: any) => [p.bracket_id, p.pick_count as number]))
+  const champPicks = new Map((champPicksData ?? []).map((p: any) => [p.bracket_id, p.winner_choice as number]))
+
+  // Build per-bracket pick maps
+  const bracketPickMaps = new Map<string, Record<string, number>>()
+  for (const p of allPicks) {
+    if (!bracketPickMaps.has(p.bracket_id)) bracketPickMaps.set(p.bracket_id, {})
+    bracketPickMaps.get(p.bracket_id)![p.game_id] = p.winner_choice
+  }
 
   const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
-    const bracketPicks = picks.filter((p) => p.bracket_id === b.id)
+    const pickMap = bracketPickMaps.get(b.id) ?? {}
+
+    // Current score
     let score = 0
-    for (const pick of bracketPicks) {
-      const result = results.get(pick.game_id)
-      if (result && result.winner === pick.winner_choice) {
+    for (const [gameId, choice] of Object.entries(pickMap)) {
+      const result = results.get(gameId)
+      if (result && result.winner === choice) {
         score += scoring[result.round.toString()] ?? 0
       }
     }
+
+    // Max possible: current score + points still earnable on unresolved games
+    // A pick is NOT earnable if the team being picked has already been eliminated
+    let maxPossible = score
+    for (const [gameId, choice] of Object.entries(pickMap)) {
+      if (results.has(gameId)) continue // already resolved — win or loss already counted
+
+      const round = getRound(gameId)
+      const pts = scoring[round.toString()] ?? 0
+
+      // Trace back to find which actual team this pick is riding on
+      const pickedTeam = resolvePickedTeam(pickMap, gameId)
+
+      // If that team is already eliminated, these points are gone
+      if (pickedTeam && eliminatedTeams.has(pickedTeam)) continue
+
+      maxPossible += pts
+    }
+
+    // Champion
+    const champChoice = champPicks.get(b.id)
+    let championPick: string | null = null
+    if (isLocked && champChoice != null) {
+      championPick = resolveChampion(pickMap)
+    }
+
     return {
       bracket_id: b.id,
       bracket_name: b.name,
       display_name: (b.profiles as any)?.display_name ?? 'Unknown',
       score,
-      picks_made: bracketPicks.length,
+      max_possible: maxPossible,
+      picks_made: pickCountMap.get(b.id) ?? 0,
       tiebreaker: b.tiebreaker,
+      champion_pick: championPick,
     }
   })
 
@@ -55,6 +258,8 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
 export default async function LeaderboardPage() {
   const leaderboard = await getLeaderboard()
+  const hasChampPicks = leaderboard.some((e) => e.champion_pick)
+  const anyScored = leaderboard.some((e) => e.score > 0)
 
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto', padding: '24px 20px' }}>
@@ -62,10 +267,10 @@ export default async function LeaderboardPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>🏀 2026 NCAA Bracket Pool</h1>
           <p style={{ color: '#6b7280', marginTop: 4, fontSize: 13 }}>
-            Tournament starts Thu Mar 19 · Scores update as games complete
+            Brackets locked · Scores update as games complete
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <RefreshScoresButton />
           <TVScheduleButton />
           <a
@@ -90,39 +295,50 @@ export default async function LeaderboardPage() {
         <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f9fafb', borderRadius: 12, color: '#9ca3af' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🏀</div>
           <div style={{ fontSize: 17, fontWeight: 500, color: '#6b7280' }}>No brackets submitted yet</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>
-            <a href="/my-brackets" style={{ color: '#2563eb' }}>Be the first — fill out your bracket →</a>
-          </div>
         </div>
       ) : (
         <>
-          {/* AI Commentary card — sits above the table */}
           <AICommentary leaderboard={leaderboard} />
 
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                {['#', 'Bracket', 'Player', 'Score', 'Picks'].map((h, i) => (
-                  <th
-                    key={h}
-                    style={{
-                      padding: '8px 12px',
-                      fontWeight: 600,
-                      color: '#374151',
-                      textAlign: i >= 3 ? 'right' : 'left',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {[
+                  '#',
+                  'Bracket',
+                  'Player',
+                  hasChampPicks ? '🏆 Pick' : null,
+                  'Score',
+                  anyScored ? 'Max' : null,
+                ]
+                  .filter(Boolean)
+                  .map((h, i, arr) => (
+                    <th
+                      key={h as string}
+                      style={{
+                        padding: '8px 12px',
+                        fontWeight: 600,
+                        color: '#374151',
+                        textAlign: i >= arr.length - 2 ? 'right' : 'left',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
               </tr>
             </thead>
             <tbody>
               {leaderboard.map((entry, i) => {
-                const incomplete = entry.picks_made < 63
+                // Tie-aware ranking: same score = same place, next skips
+                const rank = i === 0 ? 1
+                  : leaderboard[i].score === leaderboard[i - 1].score
+                    ? (leaderboard.findIndex(e => e.score === entry.score) + 1)
+                    : i + 1
+
                 return (
                   <tr key={entry.bracket_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{i + 1}</td>
+                    <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{rank}</td>
                     <td style={{ padding: '11px 12px' }}>
                       <a
                         href={`/bracket/${entry.bracket_id}`}
@@ -132,26 +348,26 @@ export default async function LeaderboardPage() {
                       </a>
                     </td>
                     <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>{entry.score}</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'right' }}>
-                      {incomplete ? (
-                        <span
-                          title={`${63 - entry.picks_made} picks missing`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            color: '#d97706',
-                            fontWeight: 600,
-                            fontSize: 13,
-                          }}
-                        >
-                          ⚠ {entry.picks_made}/63
-                        </span>
-                      ) : (
-                        <span style={{ color: '#9ca3af' }}>63/63</span>
-                      )}
+                    {hasChampPicks && (
+                      <td style={{ padding: '11px 12px', color: '#6b7280', fontSize: 13 }}>
+                        {entry.champion_pick
+                          ? <ChampionBadge champion={entry.champion_pick} />
+                          : <span style={{ color: '#d1d5db' }}>—</span>}
+                      </td>
+                    )}
+                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>
+                      {entry.score}
                     </td>
+                    {anyScored && (
+                      <td style={{ padding: '11px 12px', textAlign: 'right' }}>
+                        <span
+                          title="Max points still achievable"
+                          style={{ color: '#9ca3af', fontSize: 13 }}
+                        >
+                          {entry.max_possible}
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
