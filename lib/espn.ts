@@ -122,12 +122,47 @@ export const R64_GAME_MAP: Record<string, [string[], string[]]> = {
 
 // ─── Helper functions ────────────────────────────────────────────────────────
 
-/** Case-insensitive partial match: does espnName contain any search term (or vice versa)? */
+/**
+ * Normalize a team name for matching.
+ * Handles: "Utah St." → "utah state", "N. Dakota St." → "north dakota state",
+ *          "Miami (FL)" → "miami", "St. John's" stays "st john's"
+ */
+export function normalizeName(name: string): string {
+  let n = name.toLowerCase().trim()
+  // Remove parenthetical qualifiers: "(FL)", "(OH)", etc.
+  n = n.replace(/\s*\([^)]*\)\s*/g, ' ').trim()
+  // Expand "St." / "St" at END of string to "state"
+  // (but NOT "St." at start, which means "Saint" as in "St. John's")
+  n = n.replace(/\bst\.?\s*$/i, 'state')
+  // Expand "N." at start to "north"
+  n = n.replace(/^n\.\s*/i, 'north ')
+  // Remove remaining periods
+  n = n.replace(/\./g, '')
+  // Normalize whitespace
+  n = n.replace(/\s+/g, ' ').trim()
+  return n
+}
+
+/**
+ * Case-insensitive name match with normalization.
+ * Checks both raw partial-include AND normalized partial-include.
+ * This handles "Utah St." matching "Utah State", "Miami (FL)" matching "Miami", etc.
+ */
 export function nameMatches(espnName: string, searchTerms: string[]): boolean {
-  const lower = espnName.toLowerCase()
+  const rawLower = espnName.toLowerCase()
+  const normEspn = normalizeName(espnName)
+
   return searchTerms.some(t => {
-    const tl = t.toLowerCase()
-    return lower.includes(tl) || tl.includes(lower)
+    const rawTerm = t.toLowerCase()
+    const normTerm = normalizeName(t)
+
+    // Raw partial match (original behavior — still useful for exact/substring matches)
+    if (rawLower.includes(rawTerm) || rawTerm.includes(rawLower)) return true
+
+    // Normalized partial match (catches "Utah St." vs "Utah State")
+    if (normEspn.includes(normTerm) || normTerm.includes(normEspn)) return true
+
+    return false
   })
 }
 
@@ -199,65 +234,115 @@ export interface ScoreResult {
   score1: number | null   // team1 score (higher seed in R64)
   score2: number | null   // team2 score (lower seed in R64)
   winner: 1 | 2 | null   // null if game not complete
+  warning?: string        // set if name matching failed or data looks suspect
 }
 
 /**
  * Extract scores and winner from an ESPN event.
- * For R64 games: team1/team2 order comes from R64_GAME_MAP.
- * For R32+ games: pass in dbTeam1/dbTeam2 from tournament_games.
+ *
+ * APPROACH: Match each ESPN competitor to our team1/team2 BY NAME,
+ * not by home/away designation (which is arbitrary in tournament games).
+ *
+ * For R64 games: team1/team2 search terms come from R64_GAME_MAP.
+ * For R32+ games: team1/team2 names come from tournament_games DB rows.
+ *
+ * Returns null scores + warning if name matching fails, rather than
+ * guessing and potentially writing wrong data.
  */
 export function getScoresFromEvent(
   event: ESPNEvent,
   gameId: string,
   dbTeam1?: string | null,
   dbTeam2?: string | null
-): ScoreResult {
+): ScoreResult & { warning?: string } {
   const comp = event.competitions?.[0]
-  if (!comp) return { score1: null, score2: null, winner: null }
+  if (!comp) return { score1: null, score2: null, winner: null, warning: 'No competition data' }
 
-  const home = comp.competitors.find(c => c.homeAway === 'home')
-  const away = comp.competitors.find(c => c.homeAway === 'away')
-  if (!home || !away) return { score1: null, score2: null, winner: null }
+  const competitors = comp.competitors
+  if (competitors.length < 2) return { score1: null, score2: null, winner: null, warning: 'Fewer than 2 competitors' }
 
-  const homeScore = parseInt(home.score || '0') || 0
-  const awayScore = parseInt(away.score || '0') || 0
   const completed = event.status?.type?.completed ?? false
 
-  // Determine which ESPN competitor is our team1 vs team2
-  let homeIsTeam1: boolean | null = null
+  // ── Build name-matching terms for team1 and team2 ────────────────────────
+  let t1Terms: string[] = []
+  let t2Terms: string[] = []
 
-  // R64: use static map
   const r64 = R64_GAME_MAP[gameId]
   if (r64) {
-    const [t1Terms] = r64
-    homeIsTeam1 =
-      nameMatches(home.team.location, t1Terms) ||
-      nameMatches(home.team.displayName, t1Terms)
+    // R64: use our curated static map (most reliable)
+    t1Terms = r64[0]
+    t2Terms = r64[1]
+  } else if (dbTeam1 && dbTeam2) {
+    // R32+: use the team names from tournament_games
+    t1Terms = [dbTeam1]
+    t2Terms = [dbTeam2]
+  } else {
+    return { score1: null, score2: null, winner: null, warning: `${gameId}: No team names available for matching` }
   }
 
-  // R32+: use DB team names
-  if (homeIsTeam1 === null && dbTeam1) {
-    homeIsTeam1 =
-      home.team.location.toLowerCase().includes(dbTeam1.toLowerCase()) ||
-      dbTeam1.toLowerCase().includes(home.team.location.toLowerCase())
+  // ── Match each ESPN competitor to team1 or team2 by name ─────────────────
+  // Check BOTH location and displayName for each competitor
+  let team1Competitor: ESPNCompetitor | null = null
+  let team2Competitor: ESPNCompetitor | null = null
+
+  for (const c of competitors) {
+    const loc = c.team.location
+    const dn = c.team.displayName
+
+    const matchesT1 = nameMatches(loc, t1Terms) || nameMatches(dn, t1Terms)
+    const matchesT2 = nameMatches(loc, t2Terms) || nameMatches(dn, t2Terms)
+
+    if (matchesT1 && !matchesT2) {
+      team1Competitor = c
+    } else if (matchesT2 && !matchesT1) {
+      team2Competitor = c
+    } else if (matchesT1 && matchesT2) {
+      // Ambiguous match — both terms match the same competitor
+      // This can happen with fuzzy names like "Miami" matching both teams
+      return {
+        score1: null, score2: null, winner: null,
+        warning: `${gameId}: Ambiguous name match — "${loc}" matches both team1 and team2 terms`
+      }
+    }
   }
 
-  // Fallback: home = team1
-  if (homeIsTeam1 === null) homeIsTeam1 = true
+  // ── Validate we found both competitors ───────────────────────────────────
+  if (!team1Competitor || !team2Competitor) {
+    const espnNames = competitors.map(c => c.team.location).join(', ')
+    const missing = !team1Competitor ? `team1 (${t1Terms.join('/')})` : `team2 (${t2Terms.join('/')})`
+    return {
+      score1: null, score2: null, winner: null,
+      warning: `${gameId}: Could not match ${missing} in ESPN competitors [${espnNames}]`
+    }
+  }
 
-  const score1 = homeIsTeam1 ? homeScore : awayScore
-  const score2 = homeIsTeam1 ? awayScore : homeScore
+  // ── Extract scores from the CORRECT competitors ──────────────────────────
+  const score1 = parseInt(team1Competitor.score || '0') || 0
+  const score2 = parseInt(team2Competitor.score || '0') || 0
 
+  // ── Determine winner ─────────────────────────────────────────────────────
   let winner: 1 | 2 | null = null
-  if (completed && homeScore !== awayScore) {
-    const homeWon = homeScore > awayScore
-    winner = (homeIsTeam1 ? homeWon : !homeWon) ? 1 : 2
+  if (completed && score1 !== score2) {
+    winner = score1 > score2 ? 1 : 2
+  }
+
+  // ── Final validation: scores must be consistent with winner ───────────────
+  let warning: string | undefined
+  if (completed && score1 === score2) {
+    warning = `${gameId}: Game marked complete but scores are tied (${score1}-${score2})`
+  }
+  if (winner === 1 && score1 <= score2) {
+    warning = `${gameId}: CRITICAL — winner=1 but score1(${score1}) <= score2(${score2})`
+  }
+  if (winner === 2 && score2 <= score1) {
+    warning = `${gameId}: CRITICAL — winner=2 but score2(${score2}) <= score1(${score1})`
   }
 
   return {
     score1: score1 > 0 || completed ? score1 : null,
     score2: score2 > 0 || completed ? score2 : null,
     winner,
+    warning,
   }
 }
 

@@ -11,21 +11,9 @@
 //   1. Fetches ESPN scoreboard for the requested dates
 //   2. Matches each event to a tournament_games row (by espn_event_id or team name)
 //   3. Updates: espn_event_id, tv, venue, game_time, status, score1, score2, winner
-//   4. Propagates R64 winners → R32 team slots so later rounds can be matched
-//
-// ⚠️  Run this SQL in Supabase before deploying (adds columns if missing):
-//
-//   alter table tournament_games
-//     add column if not exists espn_event_id text,
-//     add column if not exists tv            text,
-//     add column if not exists game_time     text,
-//     add column if not exists score1        int,
-//     add column if not exists score2        int,
-//     add column if not exists updated_at    timestamptz default now();
-//
-//   -- venue column should already exist from migration, but just in case:
-//   alter table tournament_games
-//     add column if not exists venue text;
+//   4. Propagates winners → next round team slots
+//   5. Validates all completed games for score/winner consistency
+//   6. Returns warnings array in response for UI to display
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -34,6 +22,7 @@ import {
   TOURNAMENT_DATES,
   R64_GAME_MAP,
   nameMatches,
+  normalizeName,
   fetchESPNDays,
   getTVFromEvent,
   getVenueFromEvent,
@@ -44,6 +33,46 @@ import {
   type ESPNEvent,
 } from '@/lib/espn'
 
+// ─── Full propagation map: any game → the next round slot it feeds into ──────
+const NEXT_GAME_MAP: Record<string, { nextGameId: string; teamSlot: 1 | 2 }> = {
+  // R64 → R32
+  S1:{nextGameId:'SR1G0',teamSlot:1}, S2:{nextGameId:'SR1G0',teamSlot:2},
+  S3:{nextGameId:'SR1G1',teamSlot:1}, S4:{nextGameId:'SR1G1',teamSlot:2},
+  S5:{nextGameId:'SR1G2',teamSlot:1}, S6:{nextGameId:'SR1G2',teamSlot:2},
+  S7:{nextGameId:'SR1G3',teamSlot:1}, S8:{nextGameId:'SR1G3',teamSlot:2},
+  E1:{nextGameId:'ER1G0',teamSlot:1}, E2:{nextGameId:'ER1G0',teamSlot:2},
+  E3:{nextGameId:'ER1G1',teamSlot:1}, E4:{nextGameId:'ER1G1',teamSlot:2},
+  E5:{nextGameId:'ER1G2',teamSlot:1}, E6:{nextGameId:'ER1G2',teamSlot:2},
+  E7:{nextGameId:'ER1G3',teamSlot:1}, E8:{nextGameId:'ER1G3',teamSlot:2},
+  W1:{nextGameId:'WR1G0',teamSlot:1}, W2:{nextGameId:'WR1G0',teamSlot:2},
+  W3:{nextGameId:'WR1G1',teamSlot:1}, W4:{nextGameId:'WR1G1',teamSlot:2},
+  W5:{nextGameId:'WR1G2',teamSlot:1}, W6:{nextGameId:'WR1G2',teamSlot:2},
+  W7:{nextGameId:'WR1G3',teamSlot:1}, W8:{nextGameId:'WR1G3',teamSlot:2},
+  M1:{nextGameId:'MR1G0',teamSlot:1}, M2:{nextGameId:'MR1G0',teamSlot:2},
+  M3:{nextGameId:'MR1G1',teamSlot:1}, M4:{nextGameId:'MR1G1',teamSlot:2},
+  M5:{nextGameId:'MR1G2',teamSlot:1}, M6:{nextGameId:'MR1G2',teamSlot:2},
+  M7:{nextGameId:'MR1G3',teamSlot:1}, M8:{nextGameId:'MR1G3',teamSlot:2},
+  // R32 → S16
+  SR1G0:{nextGameId:'SR2G0',teamSlot:1}, SR1G1:{nextGameId:'SR2G0',teamSlot:2},
+  SR1G2:{nextGameId:'SR2G1',teamSlot:1}, SR1G3:{nextGameId:'SR2G1',teamSlot:2},
+  ER1G0:{nextGameId:'ER2G0',teamSlot:1}, ER1G1:{nextGameId:'ER2G0',teamSlot:2},
+  ER1G2:{nextGameId:'ER2G1',teamSlot:1}, ER1G3:{nextGameId:'ER2G1',teamSlot:2},
+  WR1G0:{nextGameId:'WR2G0',teamSlot:1}, WR1G1:{nextGameId:'WR2G0',teamSlot:2},
+  WR1G2:{nextGameId:'WR2G1',teamSlot:1}, WR1G3:{nextGameId:'WR2G1',teamSlot:2},
+  MR1G0:{nextGameId:'MR2G0',teamSlot:1}, MR1G1:{nextGameId:'MR2G0',teamSlot:2},
+  MR1G2:{nextGameId:'MR2G1',teamSlot:1}, MR1G3:{nextGameId:'MR2G1',teamSlot:2},
+  // S16 → E8
+  SR2G0:{nextGameId:'SR3G0',teamSlot:1}, SR2G1:{nextGameId:'SR3G0',teamSlot:2},
+  ER2G0:{nextGameId:'ER3G0',teamSlot:1}, ER2G1:{nextGameId:'ER3G0',teamSlot:2},
+  WR2G0:{nextGameId:'WR3G0',teamSlot:1}, WR2G1:{nextGameId:'WR3G0',teamSlot:2},
+  MR2G0:{nextGameId:'MR3G0',teamSlot:1}, MR2G1:{nextGameId:'MR3G0',teamSlot:2},
+  // E8 → FF
+  SR3G0:{nextGameId:'FF1',teamSlot:1}, ER3G0:{nextGameId:'FF1',teamSlot:2},
+  WR3G0:{nextGameId:'FF2',teamSlot:1}, MR3G0:{nextGameId:'FF2',teamSlot:2},
+  // FF → CHAMP
+  FF1:{nextGameId:'CHAMP',teamSlot:1}, FF2:{nextGameId:'CHAMP',teamSlot:2},
+}
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function toESPNDate(d: Date): string {
@@ -51,14 +80,9 @@ function toESPNDate(d: Date): string {
 }
 
 function getDatesToFetch(url: URL): string[] {
-  // Explicit date param
   const date = url.searchParams.get('date')
   if (date) return [date]
-
-  // All tournament dates
   if (url.searchParams.get('all') === '1') return TOURNAMENT_DATES
-
-  // Default: yesterday, today, tomorrow (catches live + recently finished games)
   const today = new Date()
   return [
     toESPNDate(new Date(today.getTime() - 86_400_000)),
@@ -67,7 +91,7 @@ function getDatesToFetch(url: URL): string[] {
   ]
 }
 
-// ─── DB row type (only the fields we need) ────────────────────────────────────
+// ─── DB row type ──────────────────────────────────────────────────────────────
 
 interface DBGame {
   game_id: string
@@ -85,47 +109,42 @@ interface DBGame {
 function matchEventToGameId(
   event: ESPNEvent,
   dbGames: DBGame[],
-  eventIdIndex: Map<string, string>   // espn_event_id → game_id
+  eventIdIndex: Map<string, string>
 ): string | null {
-  // 1. Direct espn_event_id lookup (fastest, works for all rounds once seeded)
+  // 1. Direct espn_event_id lookup (fastest, most reliable)
   if (eventIdIndex.has(event.id)) return eventIdIndex.get(event.id)!
 
   const comp = event.competitions?.[0]
   if (!comp) return null
 
   const competitors = comp.competitors
-  // Ignore events where both teams are TBD
   const knownTeams = competitors.filter(c => c.team.id !== '-2')
   if (knownTeams.length === 0) return null
 
-  // 2. R64: match by team names from our static map
+  // 2. R64: match by team names from static map
   for (const [gameId, [t1Terms, t2Terms]] of Object.entries(R64_GAME_MAP)) {
     const locs = competitors.map(c => c.team.location)
     const names = competitors.map(c => c.team.displayName)
-
     const hasT1 = locs.some(l => nameMatches(l, t1Terms)) || names.some(n => nameMatches(n, t1Terms))
-
-    // TBD opponent: only require team1 match (First Four play-in games)
     const hasTBD = competitors.some(c => c.team.id === '-2')
     const hasT2 = hasTBD || locs.some(l => nameMatches(l, t2Terms)) || names.some(n => nameMatches(n, t2Terms))
-
     if (hasT1 && hasT2) return gameId
   }
 
-  // 3. R32+: match by team names stored in tournament_games
-  //    These are populated by the propagation step below once R64 is done.
+  // 3. R32+: match by team names in tournament_games DB
   for (const dbGame of dbGames) {
-    if (dbGame.round === 0) continue            // R64 already handled above
+    if (dbGame.round === 0) continue
     if (!dbGame.team1 || !dbGame.team2) continue
     if (dbGame.status === 'final') continue
 
-    const t1 = dbGame.team1.toLowerCase()
-    const t2 = dbGame.team2.toLowerCase()
-    const locs = competitors.map(c => c.team.location.toLowerCase())
-
-    const matchT1 = locs.some(l => l.includes(t1) || t1.includes(l))
-    const matchT2 = locs.some(l => l.includes(t2) || t2.includes(l))
-
+    const t1 = normalizeName(dbGame.team1)
+    const t2 = normalizeName(dbGame.team2)
+    const locs = competitors.map(c => normalizeName(c.team.location))
+    const names = competitors.map(c => normalizeName(c.team.displayName))
+    const matchT1 = locs.some(l => l.includes(t1) || t1.includes(l)) ||
+                    names.some(n => n.includes(t1) || t1.includes(n))
+    const matchT2 = locs.some(l => l.includes(t2) || t2.includes(l)) ||
+                    names.some(n => n.includes(t2) || t2.includes(n))
     if (matchT1 && matchT2) return dbGame.game_id
   }
 
@@ -138,7 +157,6 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
 
   try {
-    // Service role client bypasses RLS — required for writing game results
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -161,7 +179,10 @@ export async function GET(request: Request) {
       .select('game_id, round, region, team1, team2, winner, status, espn_event_id')
 
     if (dbError || !dbGames) {
-      return NextResponse.json({ error: "Could not load tournament games from DB", detail: dbError?.message ?? "unknown", hint: dbError?.hint ?? null, code: dbError?.code ?? null }, { status: 500 })
+      return NextResponse.json({
+        error: 'Could not load tournament games from DB',
+        detail: dbError?.message ?? 'unknown',
+      }, { status: 500 })
     }
 
     // Build espn_event_id → game_id index
@@ -173,24 +194,6 @@ export async function GET(request: Request) {
     // Fetch ESPN
     const dates = getDatesToFetch(url)
     const events = await fetchESPNDays(dates)
-
-    // Debug: log raw ESPN response for first date if empty
-    if (events.length === 0) {
-      try {
-        const testUrl = `${ESPN_SCOREBOARD}?dates=${dates[0]}&groups=100&limit=50`
-        const testRes = await fetch(testUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Referer': 'https://www.espn.com/',
-          },
-        })
-        const testData = await testRes.json()
-        console.log('ESPN debug - status:', testRes.status, 'events count:', testData?.events?.length ?? 0, 'keys:', Object.keys(testData))
-      } catch (e) {
-        console.log('ESPN debug fetch failed:', e)
-      }
-    }
 
     // ── Match events and build update payloads ────────────────────────────────
 
@@ -208,41 +211,63 @@ export async function GET(request: Request) {
 
     const updates: GameUpdate[] = []
     const matchLog: string[] = []
+    const warnings: string[] = []
+    const skipped: string[] = []
 
     for (const event of events) {
       const gameId = matchEventToGameId(event, dbGames, eventIdIndex)
       if (!gameId) continue
 
-      // Store so later events in the same batch don't re-match the same game
       eventIdIndex.set(event.id, gameId)
 
       const dbGame = dbGames.find(g => g.game_id === gameId)
-      const { score1, score2, winner } = getScoresFromEvent(
-        event,
-        gameId,
-        dbGame?.team1,
-        dbGame?.team2
-      )
+      const scoreResult = getScoresFromEvent(event, gameId, dbGame?.team1, dbGame?.team2)
+      const status = getStatusFromEvent(event)
+
+      // ── If name matching returned a warning, log it ────────────────────────
+      if (scoreResult.warning) {
+        warnings.push(scoreResult.warning)
+      }
+
+      // ── CRITICAL: If game is final but we got no winner, SKIP the write ────
+      // This prevents overwriting good data with bad data from a failed match
+      if (status === 'final' && scoreResult.winner === null) {
+        skipped.push(`${gameId}: final but no winner — skipping DB write to protect existing data`)
+        // Still update metadata (tv, venue, time, espn_event_id) but NOT scores/winner
+        const { error } = await supabase
+          .from('tournament_games')
+          .update({
+            espn_event_id: event.id,
+            tv: getTVFromEvent(event),
+            venue: getVenueFromEvent(event),
+            game_time: getGameTimeFromEvent(event),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('game_id', gameId)
+        if (error) console.error(`Metadata update failed for ${gameId}:`, error)
+        continue
+      }
 
       updates.push({
         game_id: gameId,
         espn_event_id: event.id,
-        status: getStatusFromEvent(event),
+        status,
         tv: getTVFromEvent(event),
         venue: getVenueFromEvent(event),
         game_time: getGameTimeFromEvent(event),
-        score1,
-        score2,
-        winner,
+        score1: scoreResult.score1,
+        score2: scoreResult.score2,
+        winner: scoreResult.winner,
       })
 
-      matchLog.push(`${gameId} → ESPN ${event.id} (${event.name}) [${getStatusFromEvent(event)}]`)
+      matchLog.push(`${gameId} → ESPN ${event.id} (${event.name}) [${status}]`)
     }
 
     // ── Write updates to Supabase ─────────────────────────────────────────────
 
     let updatedCount = 0
     let errorCount = 0
+    const updateErrors: string[] = []
 
     for (const u of updates) {
       const payload: Record<string, unknown> = {
@@ -257,7 +282,6 @@ export async function GET(request: Request) {
       }
 
       // Only overwrite winner if ESPN has a definitive result
-      // (don't clobber manually-entered winners with null)
       if (u.winner !== null) payload.winner = u.winner
 
       const { error } = await supabase
@@ -265,49 +289,66 @@ export async function GET(request: Request) {
         .update(payload)
         .eq('game_id', u.game_id)
 
-      if (error) { errorCount++; console.error(`Update failed for ${u.game_id}:`, error) }
-      else updatedCount++
+      if (error) {
+        errorCount++
+        updateErrors.push(`${u.game_id}: ${error.message}`)
+        console.error(`Update failed for ${u.game_id}:`, error)
+      } else {
+        updatedCount++
+      }
     }
 
-    // ── Propagate R64 winners → R32 team slots ────────────────────────────────
-    //
-    // When a R64 game is complete, the winner's name should be written into
-    // the next round's team1 or team2 column so that:
-    //   a) The admin page shows the correct matchup
-    //   b) R32+ ESPN matching (strategy 3 above) works
-    //
-    // We do this by reading ALL final R64 games (not just the ones we just updated)
-    // so that re-running the sync is idempotent.
+    // ── Propagate ALL completed game winners → next round team slots ──────────
 
-    const { data: r64Results } = await supabase
+    const { data: completedGames } = await supabase
       .from('tournament_games')
       .select('game_id, round, team1, team2, winner')
-      .eq('round', 0)
       .not('winner', 'is', null)
 
     let propagated = 0
 
-    if (r64Results) {
-      for (const r64 of r64Results) {
-        if (!r64.winner) continue
+    for (const game of completedGames ?? []) {
+      if (!game.winner) continue
+      const winnerName = game.winner === 1 ? game.team1 : game.team2
+      if (!winnerName) continue
 
-        const winnerName = r64.winner === 1 ? r64.team1 : r64.team2
-        if (!winnerName) continue
+      const next = NEXT_GAME_MAP[game.game_id]
+      if (!next) continue
 
-        const next = getNextRoundSlot(r64.game_id, r64.winner as 1 | 2)
-        if (!next) continue
+      const field = next.teamSlot === 1 ? 'team1' : 'team2'
 
-        const updateField = next.teamSlot === 1 ? { team1: winnerName } : { team2: winnerName }
+      const { error } = await supabase
+        .from('tournament_games')
+        .update({ [field]: winnerName })
+        .eq('game_id', next.nextGameId)
+        .is(field, null) // don't overwrite if already set
 
-        const { error } = await supabase
-          .from('tournament_games')
-          .update(updateField)
-          .eq('game_id', next.nextGameId)
-          // Don't overwrite if already set (prevents race conditions)
-          .is(next.teamSlot === 1 ? 'team1' : 'team2', null)
+      if (!error) propagated++
+    }
 
-        if (!error) propagated++
+    // ── Post-update validation: check ALL completed games for consistency ─────
+
+    const { data: allCompleted } = await supabase
+      .from('tournament_games')
+      .select('game_id, team1, team2, score1, score2, winner')
+      .not('winner', 'is', null)
+
+    const inconsistencies: string[] = []
+    for (const g of allCompleted ?? []) {
+      if (g.score1 == null || g.score2 == null) continue
+      if (g.winner === 1 && g.score1 < g.score2) {
+        inconsistencies.push(
+          `${g.game_id}: ${g.team1} marked winner but scored ${g.score1} vs ${g.team2} ${g.score2}`
+        )
+      } else if (g.winner === 2 && g.score2 < g.score1) {
+        inconsistencies.push(
+          `${g.game_id}: ${g.team2} marked winner but scored ${g.score2} vs ${g.team1} ${g.score1}`
+        )
       }
+    }
+
+    if (inconsistencies.length > 0) {
+      warnings.push(...inconsistencies.map(i => `⚠ DB INCONSISTENCY: ${i}`))
     }
 
     // ── Response ──────────────────────────────────────────────────────────────
@@ -319,8 +360,14 @@ export async function GET(request: Request) {
       gamesMatched: updates.length,
       gamesUpdated: updatedCount,
       errors: errorCount,
-      r32SlotsPopulated: propagated,
+      propagated,
       matches: matchLog,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      skipped: skipped.length > 0 ? skipped : undefined,
+      updateErrors: updateErrors.length > 0 ? updateErrors : undefined,
+      // Summary for UI
+      completedGames: (allCompleted ?? []).length,
+      hasInconsistencies: inconsistencies.length > 0,
     })
 
   } catch (err) {

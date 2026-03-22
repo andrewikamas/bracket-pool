@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 // 2026 NCAA Tournament Data (Round of 64 — skipping First Four)
 const REGIONS = {
@@ -81,7 +81,8 @@ function getRegionForGame(gameId) {
 
 export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "", locked = false, gameSchedule = {}, gameResults = {}, onPicksChange = null, onTiebreakerChange = null } = {}) {
   // gameSchedule: Record<gameId, { time, tv, venue, game_time }>
-  // gameResults:  Record<gameId, 1 | 2> — actual tournament results for winner/loser highlighting
+  // gameResults: Record<gameId, number> — actual winner (1 or 2) for completed games
+  // Passed in from the server — overrides the static TBD values in REGIONS
   const [picks, setPicks] = useState(initialPicks);
   const [activeRegion, setActiveRegion] = useState("South");
   const [showFinalFour, setShowFinalFour] = useState(false);
@@ -196,26 +197,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
   // Prop-supplied schedule takes precedence over auto-fetched
   const mergedSchedule = { ...fetchedSchedule, ...gameSchedule };
 
-  // Build set of teams eliminated from tournament based on actual results
-  // Any team that lost a completed game is eliminated and should be shown as such
-  // in ALL future bracket slots, even unplayed ones
-  const eliminatedTeams = useMemo(() => {
-    const eliminated = new Set();
-    for (const [gameId, winnerChoice] of Object.entries(gameResults)) {
-      // Find the two teams in this game from REGIONS (R64 only — later rounds use bracket flow)
-      for (const region of Object.values(REGIONS)) {
-        const game = region.games.find((g) => g.id === gameId);
-        if (game) {
-          // loser is the other team
-          const loser = winnerChoice === 1 ? game.team2 : game.team1;
-          eliminated.add(loser);
-          break;
-        }
-      }
-    }
-    return eliminated;
-  }, [gameResults]);
-
   // Build full bracket structure with 6 rounds
   const getTeamForSlot = useCallback(
     (region, round, slot) => {
@@ -321,7 +302,7 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
 
   const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info }) => {
     const pick = picks[gameId];
-    const result = gameResults[gameId]; // 1, 2, or undefined — actual tournament result
+    const result = gameResults[gameId]; // 1 or 2 if game is decided, undefined otherwise
     const regionKey = getRegionForGame(gameId);
     const c = COLORS[regionKey] || COLORS.FinalFour;
     const h = compact ? 32 : 36;
@@ -337,38 +318,55 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
           const canPick = !!team;
           const losingTeam = choice === 1 ? team2 : team1;
 
-          // Result states for THIS specific game
-          const isActualWinner = result === choice;
-          const isActualLoser  = result !== undefined && result !== choice;
-          const pickedCorrectly = selected && isActualWinner;
-          const pickedWrong     = selected && isActualLoser;
+          // Result-based styling (only when game has a result AND this team was picked)
+          const hasResult = result != null;
+          const isActualWinner = hasResult && result === choice;
+          const isActualLoser = hasResult && result !== choice;
+          const pickCorrect = hasResult && selected && result === choice;
+          const pickWrong = hasResult && selected && result !== choice;
 
-          // A team can also be "dead" in a future round slot if they were
-          // knocked out in an earlier completed game — show them as eliminated
-          const isTeamEliminated = !!team && !isActualLoser && !isActualWinner && eliminatedTeams.has(team);
+          // Choose background: result colors override region colors when applicable
+          let bg, borderColor;
+          if (pickCorrect) {
+            bg = "#ecfdf5";         // green-50
+            borderColor = "#10b981"; // green-500
+          } else if (pickWrong) {
+            bg = "#fef2f2";         // red-50
+            borderColor = "#ef4444"; // red-500
+          } else if (selected) {
+            bg = c.bg;
+            borderColor = c.border;
+          } else {
+            bg = "var(--color-background-secondary)";
+            borderColor = "transparent";
+          }
 
-          // Combined loser state: either lost this game, or was already eliminated
-          const showAsEliminated = isActualLoser || isTeamEliminated;
-          const showAsWinner     = isActualWinner && !isActualLoser;
+          // Opacity: fade eliminated teams (actual losers in decided games)
+          let opacity;
+          if (isActualLoser && !selected) {
+            opacity = 0.35;
+          } else if (faded && !hasResult) {
+            opacity = 0.4;
+          } else if (team) {
+            opacity = 1;
+          } else {
+            opacity = 0.25;
+          }
 
           return (
             <div
               key={choice}
               onClick={() => {
                 if (!canPick) return;
-                // MSU easter egg: picking against Michigan State
                 if (losingTeam === "Michigan St." && picks[gameId] !== choice) {
                   setShowDisappointment(true);
                 }
-                // Michigan easter egg: picking Michigan into the Final Four
                 if (team === "Michigan" && gameId === "MR3G0" && picks[gameId] !== choice) {
                   setShowJPPride(true);
                 }
-                // Wisconsin easter egg: picking Wisconsin to win R64
                 if (team === "Wisconsin" && gameId === "W3" && picks[gameId] !== choice) {
                   setShowPukallCheers(true);
                 }
-                // MSU champ easter egg: picking Michigan State to win it all
                 if (team === "Michigan St." && gameId === "CHAMP" && picks[gameId] !== choice) {
                   setShowMSUChamp(true);
                 }
@@ -380,70 +378,50 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 gap: 6,
                 padding: `0 ${compact ? 6 : 8}px`,
                 height: h,
-                background: pickedCorrectly   ? "#dcfce7"
-                          : showAsEliminated && selected ? "#fee2e2"
-                          : showAsEliminated  ? "#fff1f2"
-                          : showAsWinner      ? "#f0fdf4"
-                          : selected          ? c.bg
-                          : "var(--color-background-secondary)",
-                borderLeft: `3px solid ${
-                  pickedCorrectly             ? "#16a34a"
-                  : showAsEliminated && selected ? "#dc2626"
-                  : showAsEliminated          ? "#fca5a5"
-                  : showAsWinner              ? "#86efac"
-                  : selected                  ? c.border
-                  : "transparent"
-                }`,
+                background: bg,
+                borderLeft: `3px solid ${borderColor}`,
                 borderBottom: choice === 1 ? `1px solid var(--color-border-tertiary)` : "none",
                 borderRadius: choice === 1 ? "6px 6px 0 0" : "0 0 6px 6px",
                 cursor: canPick ? "pointer" : "default",
-                opacity: showAsEliminated ? 0.45 : faded ? 0.4 : team ? 1 : 0.25,
+                opacity,
                 transition: "all 0.15s ease",
                 fontSize: compact ? 12 : 13,
               }}
             >
               {seed && (
-                <span style={{
-                  fontWeight: 500,
-                  fontSize: compact ? 10 : 11,
-                  color: pickedCorrectly    ? "#15803d"
-                       : showAsEliminated  ? "#ef4444"
-                       : selected          ? c.text
-                       : "var(--color-text-tertiary)",
-                  minWidth: 16,
-                  textAlign: "right",
-                }}>
+                <span
+                  style={{
+                    fontWeight: isActualWinner ? 600 : 500,
+                    fontSize: compact ? 10 : 11,
+                    color: pickCorrect ? "#059669" : pickWrong ? "#dc2626" : selected ? c.text : "var(--color-text-tertiary)",
+                    minWidth: 16,
+                    textAlign: "right",
+                  }}
+                >
                   {seed}
                 </span>
               )}
-              <span style={{
-                fontWeight: (pickedCorrectly || showAsWinner) ? 700 : selected ? 500 : 400,
-                color: pickedCorrectly   ? "#15803d"
-                     : showAsEliminated  ? "#9ca3af"
-                     : selected          ? c.text
-                     : team              ? "var(--color-text-primary)"
-                     : "var(--color-text-tertiary)",
-                textDecoration: showAsEliminated ? "line-through" : "none",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}>
+              <span
+                style={{
+                  fontWeight: isActualWinner ? 600 : selected ? 500 : 400,
+                  color: pickCorrect ? "#065f46" : pickWrong ? "#991b1b" : selected ? c.text : team ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
                 {team || "TBD"}
               </span>
-              {/* Only show result indicators for completed games */}
-              {pickedCorrectly && (
-                <span style={{ marginLeft: "auto", fontSize: 13, color: "#16a34a" }}>✓</span>
+              {/* Show result icon when game is decided and this team was picked */}
+              {pickCorrect && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 700 }}>✓</span>
               )}
-              {pickedWrong && (
-                <span style={{ marginLeft: "auto", fontSize: 13, color: "#dc2626" }}>✗</span>
+              {pickWrong && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "#ef4444", fontWeight: 700 }}>✗</span>
               )}
-              {/* Dead pick in future round (team was eliminated earlier) */}
-              {isTeamEliminated && selected && (
-                <span style={{ marginLeft: "auto", fontSize: 13, color: "#dc2626" }}>✗</span>
-              )}
-              {/* Future pick: subtle dot — no checkmark to avoid confusion with results */}
-              {selected && !result && !isTeamEliminated && (
-                <span style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: c.border, display: "inline-block", flexShrink: 0 }} />
+              {/* Show normal checkmark for picks on undecided games */}
+              {selected && !hasResult && (
+                <span style={{ marginLeft: "auto", fontSize: 10, color: c.border }}>✓</span>
               )}
             </div>
           );

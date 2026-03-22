@@ -1,154 +1,180 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useCallback } from 'react'
 
-// Confirmed ESPN IDs for Thursday R64 games
-const ESPN_ID_MAP: Record<string, string> = {
-  '401856478': 'E1', '401856479': 'E2', '401856480': 'W3', '401856481': 'W4',
-  '401856482': 'E5', '401856483': 'E6', '401856484': 'W5', '401856485': 'W6',
-  '401856486': 'M1', '401856487': 'M2', '401856488': 'S3', '401856489': 'S4',
-  '401856490': 'S5', '401856491': 'S6', '401856492': 'S7', '401856493': 'S8',
-}
-
-// Team name hints for matching games without confirmed ESPN IDs
-// Key = our game_id, value = unique team name(s) to identify the game
-const GAME_HINTS: Record<string, string[]> = {
-  // R64 Friday
-  'S1': ['Florida'], 'S2': ['Clemson'], 'E3': ["St. John's"], 'E4': ['Kansas'],
-  'E7': ['UCLA'], 'E8': ['UConn'], 'W1': ['Arizona'], 'W2': ['Villanova'],
-  'W7': ['Miami'], 'W8': ['Purdue'], 'M3': ['Texas Tech'], 'M4': ['Alabama'],
-  'M5': ['Tennessee'], 'M6': ['Virginia'], 'M7': ['Kentucky'], 'M8': ['Iowa State'],
-  // R32 Saturday — use both team names for precise matching
-  'MR1G0': ['Michigan', 'Saint Louis'],
-  'ER1G2': ['Michigan State', 'Louisville'],
-  'ER1G0': ['Duke', 'TCU'],
-  'SR1G3': ['Houston', 'Texas A&M'],
-  'WR1G3': ['Gonzaga', 'Texas'],
-  'SR1G2': ['Illinois', 'VCU'],
-  'SR1G1': ['Nebraska', 'Vanderbilt'],
-  'WR1G1': ['Arkansas', 'High Point'],
+interface RefreshResult {
+  success?: boolean
+  error?: string
+  espnEventsFound?: number
+  gamesMatched?: number
+  gamesUpdated?: number
+  errors?: number
+  warnings?: string[]
+  skipped?: string[]
+  updateErrors?: string[]
+  completedGames?: number
+  hasInconsistencies?: boolean
+  mode?: string
+  message?: string
 }
 
 export default function RefreshScoresButton() {
-  const [status, setStatus] = useState<'idle'|'loading'|'done'|'error'>('idle')
-  const [detail, setDetail] = useState('')
-  const router = useRouter()
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'warning' | 'error'>('idle')
+  const [result, setResult] = useState<RefreshResult | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
 
-  const refresh = async () => {
-    if (status === 'loading') return
+  const refresh = useCallback(async () => {
     setStatus('loading')
-    setDetail('')
+    setResult(null)
+    setShowDetails(false)
+
     try {
-      const scheduleUpdates: any[] = []
-      const winnerUpdates: any[] = []
+      const res = await fetch('/api/scores')
+      const data: RefreshResult = await res.json()
+      setResult(data)
 
-      // Fetch all three days: Thu R64, Fri R64, Sat R32
-      for (const date of ['20260319', '20260320', '20260321']) {
-        const res = await fetch(
-          `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
-        )
-        if (!res.ok) continue
-        const data = await res.json()
-
-        const events = (data.events ?? []).filter((e: any) =>
-          e.tournamentId === 22 ||
-          e.competitions?.[0]?.notes?.[0]?.headline?.includes("NCAA Men's Basketball Championship")
-        )
-
-        for (const event of events) {
-          const comp = event.competitions?.[0]
-          if (!comp) continue
-
-          const competitors = comp.competitors
-          const teamLocations = competitors.map((c: any) => c.team.location.toLowerCase())
-          const teamNames = competitors.map((c: any) => c.team.displayName?.toLowerCase() ?? '')
-          const statusDetail = event.status?.type?.detail ?? ''
-          const timeMatch = statusDetail.match(/at (.+)$/)
-          const tv = comp?.geoBroadcasts?.[0]?.media?.shortName ?? event.broadcast ?? null
-          const venue = comp.venue ? `${comp.venue.fullName}, ${comp.venue.address.city}, ${comp.venue.address.state}` : null
-          const gameTime = timeMatch ? timeMatch[1] : null
-          const state = event.status?.type?.state
-
-          // Resolve game_id: try ESPN ID map first, then hint matching
-          let gameId: string | null = ESPN_ID_MAP[event.id] ?? null
-          if (!gameId) {
-            for (const [gid, hints] of Object.entries(GAME_HINTS)) {
-              const allMatch = hints.every((hint: string) =>
-                teamLocations.some((l: string) => l.includes(hint.toLowerCase()) || hint.toLowerCase().includes(l)) ||
-                teamNames.some((n: string) => n.includes(hint.toLowerCase()))
-              )
-              if (allMatch) { gameId = gid; break }
-            }
-          }
-          if (!gameId) continue
-
-          scheduleUpdates.push({ game_id: gameId, tv, game_time: gameTime, venue })
-
-          if (state === 'post') {
-            // Find winning competitor by score
-            const winnerComp = competitors.reduce((a: any, b: any) =>
-              parseInt(a.score) > parseInt(b.score) ? a : b
-            )
-            const home = competitors.find((c: any) => c.homeAway === 'home')
-            const away = competitors.find((c: any) => c.homeAway === 'away')
-
-            // Send winner's team name — server will resolve to 1 or 2
-            // This works for ALL rounds (R64, R32, S16, etc.) generically
-            winnerUpdates.push({
-              game_id: gameId,
-              winnerName: winnerComp.team.location,  // e.g. "Michigan", "Duke"
-              score1: parseInt(home?.score ?? '0') || null,
-              score2: parseInt(away?.score ?? '0') || null,
-            })
-          }
-        }
+      if (!res.ok || data.error) {
+        setStatus('error')
+      } else if (data.mode === 'manual') {
+        setStatus('success')
+      } else if (data.hasInconsistencies || (data.warnings && data.warnings.length > 0)) {
+        setStatus('warning')
+      } else {
+        setStatus('success')
+        // Auto-reload after 2s on clean success
+        setTimeout(() => window.location.reload(), 2000)
       }
-
-      if (scheduleUpdates.length > 0) {
-        await fetch('/api/scores/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ updates: scheduleUpdates }),
-        })
-      }
-
-      if (winnerUpdates.length > 0) {
-        await fetch('/api/scores/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ updates: winnerUpdates, updateWinners: true }),
-        })
-      }
-
-      setDetail(winnerUpdates.length > 0
-        ? `${winnerUpdates.length} game${winnerUpdates.length > 1 ? 's' : ''} finished`
-        : 'No new results yet')
-      setStatus('done')
-      router.refresh()
-      setTimeout(() => { setStatus('idle'); setDetail('') }, 4000)
-    } catch(e) {
-      console.error('Refresh failed:', e)
+    } catch (err) {
+      setResult({ error: `Network error: ${err}` })
       setStatus('error')
-      setTimeout(() => { setStatus('idle'); setDetail('') }, 3000)
     }
+  }, [])
+
+  const statusColors = {
+    idle: { bg: 'white', border: '#e5e7eb', text: '#374151' },
+    loading: { bg: '#f3f4f6', border: '#d1d5db', text: '#6b7280' },
+    success: { bg: '#ecfdf5', border: '#a7f3d0', text: '#065f46' },
+    warning: { bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
+    error: { bg: '#fef2f2', border: '#fecaca', text: '#991b1b' },
   }
 
-  const label = { idle:'🔄 Refresh Scores', loading:'Checking ESPN...', done:`✓ ${detail||'Updated!'}`, error:'Failed — try again' }[status]
-  const colors = {
-    idle:   { bg:'white',   color:'#374151', border:'#e5e7eb' },
-    loading:{ bg:'#f9fafb', color:'#9ca3af', border:'#e5e7eb' },
-    done:   { bg:'#f0fdf4', color:'#15803d', border:'#bbf7d0' },
-    error:  { bg:'#fef2f2', color:'#dc2626', border:'#fecaca' },
-  }[status]
+  const sc = statusColors[status]
 
   return (
-    <button onClick={refresh} disabled={status==='loading'} style={{
-      padding:'9px 16px', background:colors.bg, color:colors.color,
-      border:`1px solid ${colors.border}`, borderRadius:8, fontSize:14,
-      fontWeight:500, cursor:status==='loading'?'not-allowed':'pointer',
-      display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap', transition:'all 0.2s',
-    }}>
-      {label}
-    </button>
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={refresh}
+        disabled={status === 'loading'}
+        style={{
+          padding: '9px 16px',
+          background: sc.bg,
+          color: sc.text,
+          border: `1px solid ${sc.border}`,
+          borderRadius: 8,
+          fontSize: 14,
+          fontWeight: 500,
+          cursor: status === 'loading' ? 'wait' : 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          whiteSpace: 'nowrap',
+          transition: 'all 0.2s',
+        }}
+      >
+        {status === 'loading' && '⏳ Refreshing...'}
+        {status === 'idle' && '🔄 Refresh Scores'}
+        {status === 'success' && '✅ Scores Updated'}
+        {status === 'warning' && '⚠️ Updated with Warnings'}
+        {status === 'error' && '❌ Refresh Failed'}
+      </button>
+
+      {/* Status banner — appears below the button */}
+      {status !== 'idle' && status !== 'loading' && result && (
+        <div style={{
+          position: 'absolute',
+          right: 0,
+          top: '100%',
+          marginTop: 8,
+          width: 360,
+          maxWidth: '90vw',
+          background: sc.bg,
+          border: `1px solid ${sc.border}`,
+          borderRadius: 10,
+          padding: '12px 14px',
+          fontSize: 13,
+          color: sc.text,
+          zIndex: 50,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        }}>
+          {/* Summary line */}
+          {result.error && (
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              {result.error}
+            </div>
+          )}
+
+          {result.mode === 'manual' && (
+            <div>{result.message}</div>
+          )}
+
+          {result.success && (
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                {result.gamesUpdated} games updated · {result.completedGames} completed
+              </div>
+              {result.espnEventsFound === 0 && (
+                <div style={{ color: '#b45309', marginBottom: 4 }}>
+                  ESPN returned 0 events — server-side fetch may be blocked. Scores on the bracket pages use client-side ESPN and should still work.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Warnings */}
+          {result.warnings && result.warnings.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div
+                onClick={() => setShowDetails(!showDetails)}
+                style={{ cursor: 'pointer', fontWeight: 600, fontSize: 12, marginBottom: 4 }}
+              >
+                {showDetails ? '▾' : '▸'} {result.warnings.length} warning{result.warnings.length > 1 ? 's' : ''}
+              </div>
+              {showDetails && (
+                <div style={{
+                  maxHeight: 200,
+                  overflowY: 'auto',
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                  background: 'rgba(0,0,0,0.03)',
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  fontFamily: 'monospace',
+                }}>
+                  {result.warnings.map((w, i) => (
+                    <div key={i} style={{ marginBottom: 4 }}>{w}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dismiss */}
+          <button
+            onClick={() => { setStatus('idle'); setResult(null) }}
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              color: sc.text,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              opacity: 0.7,
+              textDecoration: 'underline',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
