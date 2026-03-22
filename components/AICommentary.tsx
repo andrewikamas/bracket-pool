@@ -13,19 +13,19 @@ interface Commentary {
   family: string
   spicy: string
   trump: string
-  scully: string
-  cosell: string
-  underpants: string
+  buddha: string
+  homer: string
+  bart: string
   generated_at: string
 }
 
 const TONES = [
-  { key: 'family',     label: '👨‍👩‍👧‍👦 Family'          },
-  { key: 'spicy',      label: '🌶️ Spicy'            },
-  { key: 'trump',      label: '🇺🇸 Trump'            },
-  { key: 'scully',     label: '🎙️ Vin Scully'       },
-  { key: 'cosell',     label: '🥊 Howard Cosell'    },
-  { key: 'underpants', label: '🩲 Capt. Underpants' },
+  { key: 'family', label: '👨‍👩‍👧‍👦 Family'   },
+  { key: 'spicy',  label: '🌶️ Spicy'     },
+  { key: 'trump',  label: '🇺🇸 Trump'     },
+  { key: 'buddha', label: '🪷 Buddha'     },
+  { key: 'homer',  label: '🍩 Homer'      },
+  { key: 'bart',   label: '🛹 Bart'       },
 ] as const
 
 type Tone = typeof TONES[number]['key']
@@ -80,12 +80,12 @@ export default function AICommentary({ leaderboard }: { leaderboard: Leaderboard
     ? { bg: '#fff7f0', border: '#fed7aa', accent: '#ea580c', label: '#9a3412', text: '#431407', muted: '#c2410c' }
     : tone === 'trump'
     ? { bg: '#fff1f2', border: '#fecdd3', accent: '#dc2626', label: '#991b1b', text: '#450a0a', muted: '#b91c1c' }
-    : tone === 'scully'
+    : tone === 'buddha'
+    ? { bg: '#fff7ed', border: '#fed7aa', accent: '#d97706', label: '#92400e', text: '#451a03', muted: '#b45309' }
+    : tone === 'homer'
+    ? { bg: '#fefce8', border: '#fde68a', accent: '#ca8a04', label: '#713f12', text: '#1c1917', muted: '#a16207' }
+    : tone === 'bart'
     ? { bg: '#f0f9ff', border: '#bae6fd', accent: '#0284c7', label: '#075985', text: '#0c4a6e', muted: '#0369a1' }
-    : tone === 'cosell'
-    ? { bg: '#fafaf9', border: '#d6d3d1', accent: '#44403c', label: '#1c1917', text: '#0c0a09', muted: '#57534e' }
-    : tone === 'underpants'
-    ? { bg: '#fdf4ff', border: '#e9d5ff', accent: '#9333ea', label: '#581c87', text: '#2e1065', muted: '#7e22ce' }
     : { bg: '#fefce8', border: '#fde68a', accent: '#d97706', label: '#92400e', text: '#1c1917', muted: '#a16207' }
 
   if (status === 'loading') {

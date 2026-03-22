@@ -224,11 +224,11 @@ Write exactly 2-3 sentences for EACH of four tones. Be specific — use real fir
 TONE 1 "family": Warm, enthusiastic. Celebrate leaders, highlight smart picks, pure good vibes for all ages.
 TONE 2 "spicy": Light affectionate trash talk at adults only. Tease bad adult picks, celebrate upsets that busted brackets — fun and loving, never mean.
 TONE 3 "trump": Write exactly as Donald Trump would — superlatives everywhere ("the greatest bracket pool, maybe ever"), claims his hypothetical picks would have been perfect, refers to losing brackets as "total disasters" and "very unfair", brags about crowd size at the games, uses "believe me" and "many people are saying" constantly. Keep it purely stylistic, no real politics.
-TONE 4 "scully": Write as Vin Scully would — poetic, warm, storytelling voice. Pull in a brief tangential anecdote about a player's hometown or a historical moment. Paint the scene with his signature unhurried cadence, as if describing a summer afternoon at Dodger Stadium but it's March Madness. Timeless and beautiful.
-TONE 5 "cosell": Write as Howard Cosell would — bombastic, self-important, uses his own name occasionally ("I, Howard Cosell, tell you this"), speaks in declarative proclamations, quotes himself, uses words like "predilection" and "juggernaut," and cannot resist editorializing about everything. Dramatic pauses implied.
-TONE 6 "underpants": Write as Captain Underpants would narrate it — silly, breathless, lots of "tra-la-laaa!", references underwear and potty humor tangentially, calls everyone by goofy nicknames, gets distracted mid-sentence, uses made-up words, ends with something completely unrelated to basketball.
+TONE 4 "buddha": Write as the Buddha would contemplate the bracket pool — through peaceful observation, gentle wisdom, and non-attachment to outcomes. Gently note that suffering arises from attachment to one's bracket picks. Reference the Noble Eightfold Path tangentially. Find the deeper meaning in an upset. Serene, compassionate, slightly humorous in its calm acceptance of chaos.
+TONE 5 "homer": Write as Homer Simpson would — starts with food (probably donuts or beer), gets distracted, accidentally makes a good point, says "D'oh!" when someone's bracket gets busted, references Bart or Marge, ends with something about the couch. Lovable, dumb, surprisingly sweet.
+TONE 6 "bart": Write as Bart Simpson would — calls people "dude" and "man", uses "bogus" and "radical", trash talks the adults relentlessly, gives the kids props (especially other kids in the pool), threatens to prank call Moe's Tavern if his bracket busts, ends with "Eat my shorts" directed at whoever is losing.
 
-Return ONLY valid JSON with exactly six string keys: "family", "spicy", "trump", "scully", "cosell", "underpants". No markdown, no explanation.`
+Return ONLY valid JSON with exactly six string keys: "family", "spicy", "trump", "buddha", "homer", "bart". No markdown, no explanation.`
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -247,27 +247,27 @@ Return ONLY valid JSON with exactly six string keys: "family", "spicy", "trump",
     const anthropicData = await anthropicRes.json()
     const rawText: string = anthropicData.content?.[0]?.text ?? ''
 
-    let parsed: { family: string; spicy: string; trump: string; scully: string; cosell: string; underpants: string }
+    let parsed: { family: string; spicy: string; trump: string; buddha: string; homer: string; bart: string }
     try {
       parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim())
     } catch {
       parsed = {
-        family:     'The tournament is underway — check back soon for the full breakdown!',
-        spicy:      "The bracket carnage hasn't started yet. Stay tuned.",
-        trump:      "This is the greatest bracket pool ever made, believe me.",
-        scully:     "It is a lovely evening for basketball, and here we are.",
-        cosell:     "I, Howard Cosell, declare this tournament to be underway.",
-        underpants: "Tra-la-laaa! The brackets are happening! Also underpants!",
+        family:  'The tournament is underway — check back soon for the full breakdown!',
+        spicy:   "The bracket carnage hasn't started yet. Stay tuned.",
+        trump:   "This is the greatest bracket pool ever made, believe me.",
+        buddha:  "Attachment to one's bracket is the root of suffering.",
+        homer:   "Mmm... brackets. D'oh!",
+        bart:    "Eat my shorts, whoever's in last place.",
       }
     }
 
     const commentary = {
-      family:     parsed.family,
-      spicy:      parsed.spicy,
-      trump:      parsed.trump,
-      scully:     parsed.scully,
-      cosell:     parsed.cosell,
-      underpants: parsed.underpants,
+      family:  parsed.family,
+      spicy:   parsed.spicy,
+      trump:   parsed.trump,
+      buddha:  parsed.buddha,
+      homer:   parsed.homer,
+      bart:    parsed.bart,
       generated_at: new Date().toISOString(),
     }
 

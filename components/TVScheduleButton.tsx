@@ -37,15 +37,24 @@ const GAMES = [
   { id: 'M6',  t1: 'Virginia',      s1: 3,  t2: 'Wright St.',      s2: 14, region: 'Midwest', espnId: '' },
   { id: 'M7',  t1: 'Kentucky',      s1: 7,  t2: 'Santa Clara',     s2: 10, region: 'Midwest', espnId: '' },
   { id: 'M8',  t1: 'Iowa St.',      s1: 2,  t2: 'Tennessee St.',   s2: 15, region: 'Midwest', espnId: '' },
-  // Saturday March 21 — Round of 32 (teams from actual R64 results)
-  { id: 'MR32_1', t1: 'Michigan',      s1: 1,  t2: 'Saint Louis',  s2: 9,  region: 'Midwest', espnId: '' },
-  { id: 'ER32_1', t1: 'Michigan St.',  s1: 3,  t2: 'Louisville',   s2: 6,  region: 'East',    espnId: '' },
-  { id: 'ER32_2', t1: 'Duke',          s1: 1,  t2: 'TCU',          s2: 9,  region: 'East',    espnId: '' },
-  { id: 'SR32_1', t1: 'Houston',       s1: 2,  t2: 'Texas A&M',    s2: 10, region: 'South',   espnId: '' },
-  { id: 'WR32_1', t1: 'Gonzaga',       s1: 3,  t2: 'Texas',        s2: 11, region: 'West',    espnId: '' },
-  { id: 'SR32_2', t1: 'Illinois',      s1: 3,  t2: 'VCU',          s2: 11, region: 'South',   espnId: '' },
-  { id: 'SR32_3', t1: 'Nebraska',      s1: 4,  t2: 'Vanderbilt',   s2: 5,  region: 'South',   espnId: '' },
-  { id: 'WR32_2', t1: 'Arkansas',      s1: 4,  t2: 'High Point',   s2: 12, region: 'West',    espnId: '' },
+  // Saturday March 21 — Round of 32
+  { id: 'MR1G0', t1: 'Michigan',      s1: 1,  t2: 'Saint Louis',  s2: 9,  region: 'Midwest', espnId: '' },
+  { id: 'ER1G2', t1: 'Michigan St.',  s1: 3,  t2: 'Louisville',   s2: 6,  region: 'East',    espnId: '' },
+  { id: 'ER1G0', t1: 'Duke',          s1: 1,  t2: 'TCU',          s2: 9,  region: 'East',    espnId: '' },
+  { id: 'SR1G3', t1: 'Houston',       s1: 2,  t2: 'Texas A&M',    s2: 10, region: 'South',   espnId: '' },
+  { id: 'WR1G2', t1: 'Gonzaga',       s1: 3,  t2: 'Texas',        s2: 11, region: 'West',    espnId: '' },
+  { id: 'SR1G2', t1: 'Illinois',      s1: 3,  t2: 'VCU',          s2: 11, region: 'South',   espnId: '' },
+  { id: 'SR1G1', t1: 'Nebraska',      s1: 4,  t2: 'Vanderbilt',   s2: 5,  region: 'South',   espnId: '' },
+  { id: 'WR1G1', t1: 'Arkansas',      s1: 4,  t2: 'High Point',   s2: 12, region: 'West',    espnId: '' },
+  // Sunday March 22 — Round of 32
+  { id: 'WR1G3', t1: 'Miami (FL)',    s1: 7,  t2: 'Purdue',       s2: 2,  region: 'West',    espnId: '' },
+  { id: 'MR1G3', t1: 'Iowa St.',      s1: 2,  t2: 'Kentucky',     s2: 7,  region: 'Midwest', espnId: '' },
+  { id: 'SR1G0', t1: 'Florida',       s1: 1,  t2: 'Clemson',      s2: 8,  region: 'South',   espnId: '' },
+  { id: 'WR1G0', t1: 'Arizona',       s1: 1,  t2: 'Villanova',    s2: 8,  region: 'West',    espnId: '' },
+  { id: 'ER1G1', t1: "St. John's",    s1: 5,  t2: 'Kansas',       s2: 4,  region: 'East',    espnId: '' },
+  { id: 'MR1G1', t1: 'Texas Tech',    s1: 5,  t2: 'Alabama',      s2: 4,  region: 'Midwest', espnId: '' },
+  { id: 'MR1G2', t1: 'Tennessee',     s1: 6,  t2: 'Virginia',     s2: 3,  region: 'Midwest', espnId: '' },
+  { id: 'ER1G3', t1: 'UCLA',          s1: 7,  t2: 'UConn',        s2: 2,  region: 'East',    espnId: '' },
 ]
 
 const REGION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -85,7 +94,7 @@ export default function TVScheduleButton() {
       for (const g of GAMES) espnIdToGameId[g.espnId] = g.id
 
       const results: Record<string, GameSchedule> = {}
-      for (const date of ['20260319', '20260320', '20260321']) {
+      for (const date of ['20260319', '20260320', '20260321', '20260322']) {
         const res = await fetch(
           `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date}&groups=100&limit=50`
         )
@@ -143,7 +152,8 @@ export default function TVScheduleButton() {
   const DAYS = [
     { games: GAMES.slice(0, 16),  label: 'Thursday, March 19 — First Round',  dateStr: '2026-03-19' },
     { games: GAMES.slice(16, 32), label: 'Friday, March 20 — First Round',    dateStr: '2026-03-20' },
-    { games: GAMES.slice(32),     label: 'Saturday, March 21 — Round of 32',  dateStr: '2026-03-21' },
+    { games: GAMES.slice(32, 40), label: 'Saturday, March 21 — Round of 32',  dateStr: '2026-03-21' },
+    { games: GAMES.slice(40),     label: 'Sunday, March 22 — Round of 32',    dateStr: '2026-03-22' },
   ]
 
   // Use local date string (YYYY-MM-DD) to avoid UTC vs local timezone issues
@@ -356,7 +366,7 @@ export default function TVScheduleButton() {
             }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>📺 Tournament TV Schedule</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Mar 19–21 · All times EDT</div>
+                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Mar 19–22 · All times EDT</div>
               </div>
               <button
                 onClick={() => setOpen(false)}
