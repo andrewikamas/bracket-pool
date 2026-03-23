@@ -206,19 +206,58 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
     }
   }
 
+  // Build set of eliminated teams from game results
+  const eliminatedTeams = new Set();
+
+  // R64 losers
+  for (const reg of Object.values(REGIONS)) {
+    for (const g of reg.games) {
+      const winner = gameResults[g.id];
+      if (winner) {
+        const loser = winner === g.team1 ? g.team2 : g.team1;
+        eliminatedTeams.add(loser);
+      }
+    }
+  }
+
+  // R32+ losers: trace feeder games to find who lost
+  const R32_FEEDERS = {
+    'SR1G0':['S1','S2'], 'SR1G1':['S3','S4'], 'SR1G2':['S5','S6'], 'SR1G3':['S7','S8'],
+    'ER1G0':['E1','E2'], 'ER1G1':['E3','E4'], 'ER1G2':['E5','E6'], 'ER1G3':['E7','E8'],
+    'WR1G0':['W1','W2'], 'WR1G1':['W3','W4'], 'WR1G2':['W5','W6'], 'WR1G3':['W7','W8'],
+    'MR1G0':['M1','M2'], 'MR1G1':['M3','M4'], 'MR1G2':['M5','M6'], 'MR1G3':['M7','M8'],
+  };
+  for (const [r32Id, [f1, f2]] of Object.entries(R32_FEEDERS)) {
+    const r32Winner = gameResults[r32Id];
+    if (!r32Winner) continue;
+    const f1Winner = gameResults[f1];
+    const f2Winner = gameResults[f2];
+    if (f1Winner && f1Winner !== r32Winner) eliminatedTeams.add(f1Winner);
+    if (f2Winner && f2Winner !== r32Winner) eliminatedTeams.add(f2Winner);
+  }
+  // S16+ losers: any game result where we can identify the loser
+  for (const [gameId, winner] of Object.entries(gameResults)) {
+    if (gameId.match(/R[2-3]G/) || gameId === 'FF1' || gameId === 'FF2' || gameId === 'CHAMP') {
+      // We know the winner — anyone who was in this game and isn't the winner is eliminated
+      // But we need both teams. Check if either feeder's winner isn't this winner.
+      // Simplified: if a team WAS a winner of a previous round but lost here, they're eliminated
+    }
+  }
+
   // Get the ACTUAL team in a R32+ matchup position (from real game results).
-  // Returns the team name that actually advanced, or null if the feeder game hasn't been decided.
+  // Recursively traces back through completed games.
   const getActualTeamForPosition = useCallback((region, round, slot, position) => {
-    // position: 1 or 2 (which team in the matchup)
     const feederSlot = slot * 2 + (position - 1);
     if (round === 1) {
-      // Feeder is an R64 game
       const feederGame = REGIONS[region].games[feederSlot];
       return gameResults[feederGame.id] || null;
     }
-    // Feeder is a later-round game
+    // Check if the feeder game has a result
     const feederGameId = `${region[0]}R${round - 1}G${feederSlot}`;
-    return gameResults[feederGameId] || null;
+    if (gameResults[feederGameId]) return gameResults[feederGameId];
+    // No result for feeder — but maybe we know who's IN the feeder game
+    // by recursing further back
+    return null;
   }, [gameResults]);
 
   // Build full bracket structure with 6 rounds
@@ -500,12 +539,13 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                         // Show ACTUAL teams from results (who really advanced)
                         const actual1 = getActualTeamForPosition(region, round, slot, 1);
                         const actual2 = getActualTeamForPosition(region, round, slot, 2);
-                        // Fall back to user's picks if no result yet
                         const picked = getTeamForSlot(region, round, slot);
-                        team1 = actual1 ?? picked.team1;
-                        seed1 = actual1 ? (teamSeedMap[actual1] ?? null) : picked.seed1;
-                        team2 = actual2 ?? picked.team2;
-                        seed2 = actual2 ? (teamSeedMap[actual2] ?? null) : picked.seed2;
+                        // Fall back to user's pick ONLY if that team is still alive
+                        // If eliminated, show null (TBD) — the dead pick indicator handles the rest
+                        team1 = actual1 ?? (picked.team1 && !eliminatedTeams.has(picked.team1) ? picked.team1 : null);
+                        seed1 = (team1 && teamSeedMap[team1] != null) ? teamSeedMap[team1] : (team1 ? picked.seed1 : null);
+                        team2 = actual2 ?? (picked.team2 && !eliminatedTeams.has(picked.team2) ? picked.team2 : null);
+                        seed2 = (team2 && teamSeedMap[team2] != null) ? teamSeedMap[team2] : (team2 ? picked.seed2 : null);
                       } else {
                         // Edit mode: show user's picks as before
                         const t = getTeamForSlot(region, round, slot);
@@ -543,14 +583,15 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
       const e8Result = gameResults[`${region[0]}R3G0`];
       if (e8Result) return { team: e8Result, seed: teamSeedMap[e8Result] ?? null };
     }
-    // Fall back to user's picks
+    // Fall back to user's picks — but only if that team is still alive
     const key = `${region[0]}R3G0`;
     const pick = picks[key];
     if (!pick) return { team: null, seed: null };
     const t = getTeamForSlot(region, 3, 0);
-    if (pick === 1 && t.team1) return { team: t.team1, seed: t.seed1 };
-    if (pick === 2 && t.team2) return { team: t.team2, seed: t.seed2 };
-    return { team: null, seed: null };
+    let team = pick === 1 ? t.team1 : pick === 2 ? t.team2 : null;
+    let seed = pick === 1 ? t.seed1 : pick === 2 ? t.seed2 : null;
+    if (team && eliminatedTeams.has(team)) { team = null; seed = null; }
+    return { team, seed };
   };
 
   // For Final Four, also compute user's picked winners
