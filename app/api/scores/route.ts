@@ -249,13 +249,13 @@ async function processESPNEvents(events: ESPNEvent[]) {
   }
 
   // ── Write updates to Supabase ───────────────────────────────────────────
-  // CRITICAL: Never overwrite a game that already has a final result.
-  // This prevents stale ESPN re-fetches from corrupting manually-fixed data.
+  // Guard: if a game already has a winner in the DB, don't overwrite it.
+  // This protects manual SQL fixes from being clobbered by re-fetches.
+  // New game results (winner=null in DB) flow through normally.
 
-  // Build set of games already finalized in DB
-  const alreadyFinal = new Set<string>()
+  const dbWinnerMap = new Map<string, number | null>()
   for (const g of dbGames) {
-    if (g.status === 'final' && g.winner != null) alreadyFinal.add(g.game_id)
+    dbWinnerMap.set(g.game_id, g.winner)
   }
 
   let updatedCount = 0
@@ -263,7 +263,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
   const updateErrors: string[] = []
 
   for (const u of updates) {
-    const isAlreadyFinal = alreadyFinal.has(u.game_id)
+    const existingWinner = dbWinnerMap.get(u.game_id)
 
     const payload: Record<string, unknown> = {
       espn_event_id: u.espn_event_id,
@@ -273,11 +273,11 @@ async function processESPNEvents(events: ESPNEvent[]) {
       updated_at: new Date().toISOString(),
     }
 
-    if (isAlreadyFinal) {
-      // Game already has a verified final result — only update metadata, never touch scores/winner
-      matchLog.push(`${u.game_id}: already final — metadata only`)
+    if (existingWinner != null) {
+      // DB already has a winner — only update metadata, protect existing result
+      matchLog.push(`${u.game_id}: winner already set (${existingWinner}) — metadata only`)
     } else {
-      // Game not yet finalized — safe to write scores and winner
+      // No winner yet — write scores, status, and winner
       payload.status = u.status
       payload.score1 = u.score1
       payload.score2 = u.score2
