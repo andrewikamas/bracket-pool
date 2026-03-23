@@ -159,7 +159,7 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     { data: champPicksData },
   ] = await Promise.all([
     supabase.from('brackets').select('id, name, tiebreaker, profiles(display_name)'),
-    supabase.from('tournament_games').select('game_id, round, winner'),
+    supabase.from('tournament_games').select('game_id, round, winner, winner_name, team1, team2'),
     supabase.from('app_settings').select('value').eq('key', 'scoring').single(),
     supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     supabase.from('bracket_pick_counts').select('bracket_id, pick_count'),
@@ -178,17 +178,18 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const scoring: Record<string, number> =
     (scoringSetting?.value as any) ?? { '0': 2, '1': 3, '2': 5, '3': 8, '4': 12, '5': 25 }
 
-  const completedGames = (games ?? []).filter((g) => g.winner != null)
-  const results = new Map(completedGames.map((g) => [g.game_id, { round: g.round, winner: g.winner }]))
+  const completedGames = (games ?? []).filter((g) => g.winner_name != null)
+  const results = new Map(completedGames.map((g) => [g.game_id, { round: g.round, winner_name: g.winner_name as string }]))
 
-  // Build set of eliminated teams from R64 results
+  // Build set of eliminated teams from ALL completed games (not just R64)
+  // Uses winner_name — the losing team is whichever of team1/team2 isn't the winner
   const eliminatedTeams = new Set<string>()
   for (const g of completedGames) {
-    if (g.round !== 0) continue
-    const region = Object.values(REGIONS).flatMap(r => r.games).find(game => game.id === g.game_id)
-    if (!region) continue
-    if (g.winner === 1) eliminatedTeams.add(region.team2)
-    else if (g.winner === 2) eliminatedTeams.add(region.team1)
+    if (!g.winner_name) continue
+    const teams = [g.team1, g.team2].filter(Boolean) as string[]
+    for (const t of teams) {
+      if (t !== g.winner_name) eliminatedTeams.add(t)
+    }
   }
 
   const pickCountMap = new Map((pickCounts ?? []).map((p: any) => [p.bracket_id, p.pick_count as number]))
@@ -204,11 +205,13 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
     const pickMap = bracketPickMaps.get(b.id) ?? {}
 
-    // Current score
+    // Current score — compare picked team NAME against winner_name
     let score = 0
-    for (const [gameId, choice] of Object.entries(pickMap)) {
+    for (const [gameId] of Object.entries(pickMap)) {
       const result = results.get(gameId)
-      if (result && result.winner === choice) {
+      if (!result) continue
+      const pickedTeam = resolvePickedTeam(pickMap, gameId)
+      if (pickedTeam && pickedTeam === result.winner_name) {
         score += scoring[result.round.toString()] ?? 0
       }
     }

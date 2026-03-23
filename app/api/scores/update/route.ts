@@ -1,11 +1,6 @@
 // app/api/scores/update/route.ts
-//
-// METADATA ONLY — updates TV, venue, game_time on tournament_games.
-// All winner/score writes go through /api/scores (POST) which uses
-// the safe name-matching logic in lib/espn.ts.
-//
-// The old updateWinners code path has been removed because it used
-// fuzzy first-word matching that caused incorrect winner assignments.
+// METADATA ONLY — TV, venue, game_time updates.
+// All winner/score writes go through /api/scores POST which uses winner_name.
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -14,10 +9,9 @@ export async function POST(request: Request) {
   try {
     const { updates, updateWinners } = await request.json()
 
-    // BLOCK winner writes through this route
     if (updateWinners) {
       return NextResponse.json({
-        error: 'Winner updates are no longer accepted through this endpoint. Use /api/scores (POST) instead.',
+        error: 'Winner updates are not accepted through this endpoint. Use /api/scores POST instead.',
       }, { status: 400 })
     }
 
@@ -35,12 +29,7 @@ export async function POST(request: Request) {
 
     for (const u of updates) {
       if (!u.game_id) continue
-
-      const payload: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      }
-
-      // Metadata only — never touch winner, score1, score2, or status
+      const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (u.tv)        payload.tv = u.tv
       if (u.game_time) payload.game_time = u.game_time
       if (u.venue)     payload.venue = u.venue

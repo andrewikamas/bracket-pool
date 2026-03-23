@@ -56,8 +56,8 @@ const REGIONS = {
 const ROUND_NAMES = ["Round of 64", "Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship"];
 
 const COLORS = {
-  South: { bg: "#E1F5EE", border: "#0F6E56", text: "#085041", light: "#9FE1CB" },
-  West: { bg: "#FAECE7", border: "#993C1D", text: "#712B13", light: "#F5C4B3" },
+  South: { bg: "#F0FDFA", border: "#0F766E", text: "#134E4A", light: "#99F6E4" },
+  West: { bg: "#FFF7ED", border: "#C2410C", text: "#7C2D12", light: "#FDBA74" },
   East: { bg: "#E6F1FB", border: "#185FA5", text: "#0C447C", light: "#B5D4F4" },
   Midwest: { bg: "#EEEDFE", border: "#534AB7", text: "#3C3489", light: "#CECBF6" },
   FinalFour: { bg: "#FAEEDA", border: "#854F0B", text: "#633806", light: "#FAC775" },

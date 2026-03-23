@@ -231,10 +231,11 @@ export function getStatusFromEvent(event: ESPNEvent): 'scheduled' | 'live' | 'fi
 }
 
 export interface ScoreResult {
-  score1: number | null   // team1 score (higher seed in R64)
-  score2: number | null   // team2 score (lower seed in R64)
-  winner: 1 | 2 | null   // null if game not complete
-  warning?: string        // set if name matching failed or data looks suspect
+  score1: number | null
+  score2: number | null
+  winner: 1 | 2 | null       // kept for backwards compat, but scoring should use winnerName
+  winnerName: string | null   // THE SOURCE OF TRUTH — canonical team name that won
+  warning?: string
 }
 
 /**
@@ -256,10 +257,10 @@ export function getScoresFromEvent(
   dbTeam2?: string | null
 ): ScoreResult & { warning?: string } {
   const comp = event.competitions?.[0]
-  if (!comp) return { score1: null, score2: null, winner: null, warning: 'No competition data' }
+  if (!comp) return { score1: null, score2: null, winner: null, winnerName: null, warning: 'No competition data' }
 
   const competitors = comp.competitors
-  if (competitors.length < 2) return { score1: null, score2: null, winner: null, warning: 'Fewer than 2 competitors' }
+  if (competitors.length < 2) return { score1: null, score2: null, winner: null, winnerName: null, warning: 'Fewer than 2 competitors' }
 
   const completed = event.status?.type?.completed ?? false
 
@@ -277,7 +278,7 @@ export function getScoresFromEvent(
     t1Terms = [dbTeam1]
     t2Terms = [dbTeam2]
   } else {
-    return { score1: null, score2: null, winner: null, warning: `${gameId}: No team names available for matching` }
+    return { score1: null, score2: null, winner: null, winnerName: null, warning: `${gameId}: No team names available for matching` }
   }
 
   // ── Match each ESPN competitor to team1 or team2 by name ─────────────────
@@ -300,7 +301,7 @@ export function getScoresFromEvent(
       // Ambiguous match — both terms match the same competitor
       // This can happen with fuzzy names like "Miami" matching both teams
       return {
-        score1: null, score2: null, winner: null,
+        score1: null, score2: null, winner: null, winnerName: null,
         warning: `${gameId}: Ambiguous name match — "${loc}" matches both team1 and team2 terms`
       }
     }
@@ -311,7 +312,7 @@ export function getScoresFromEvent(
     const espnNames = competitors.map(c => c.team.location).join(', ')
     const missing = !team1Competitor ? `team1 (${t1Terms.join('/')})` : `team2 (${t2Terms.join('/')})`
     return {
-      score1: null, score2: null, winner: null,
+      score1: null, score2: null, winner: null, winnerName: null,
       warning: `${gameId}: Could not match ${missing} in ESPN competitors [${espnNames}]`
     }
   }
@@ -338,10 +339,15 @@ export function getScoresFromEvent(
     warning = `${gameId}: CRITICAL — winner=2 but score2(${score2}) <= score1(${score1})`
   }
 
+  // ── Resolve winner's canonical name ─────────────────────────────────────
+  // dbTeam1/dbTeam2 are our canonical names from REGIONS/propagation
+  const winnerName = winner === 1 ? (dbTeam1 ?? null) : winner === 2 ? (dbTeam2 ?? null) : null
+
   return {
     score1: score1 > 0 || completed ? score1 : null,
     score2: score2 > 0 || completed ? score2 : null,
     winner,
+    winnerName,
     warning,
   }
 }

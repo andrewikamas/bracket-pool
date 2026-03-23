@@ -19,8 +19,8 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
     supabase.from('app_settings').select('value').eq('key', 'lock_time').single(),
     supabase.auth.getUser(),
     supabase.from('tournament_games').select('game_id, tv, game_time, venue').eq('round', 0),
-    // Fetch team names along with winner so we can resolve the winning team's NAME
-    supabase.from('tournament_games').select('game_id, winner, team1, team2').not('winner', 'is', null),
+    // Read winner_name directly — no 1/2 translation needed
+    supabase.from('tournament_games').select('game_id, winner_name').not('winner_name', 'is', null),
   ])
 
   if (!bracket) return (
@@ -33,27 +33,21 @@ export default async function ViewBracketPage({ params }: { params: Promise<{ id
   const isLocked = lockTime ? new Date() > lockTime : false
   const isOwner = authUser?.user?.id === bracket.user_id
 
-  // Hide picks until lock time
   const picks: Record<string, number> = {}
   if (isLocked) {
     for (const p of picksData ?? []) picks[p.game_id] = p.winner_choice
   }
 
-  // Build game schedule from ESPN sync data
   const gameSchedule: Record<string, any> = {}
   for (const g of scheduleData ?? []) {
     if (g.game_id) gameSchedule[g.game_id] = { tv: g.tv, game_time: g.game_time, venue: g.venue }
   }
 
-  // Build game results: game_id -> winning team NAME (not 1/2 choice)
-  // This is critical: the bracket component's team ordering differs from the DB's,
-  // so we must pass the actual team name to compare against.
+  // gameResults: game_id → winning team NAME (string)
+  // This is the source of truth — no 1/2 slot math anywhere
   const gameResults: Record<string, string> = {}
   for (const g of resultsData ?? []) {
-    if (g.game_id && g.winner != null) {
-      const winnerName = g.winner === 1 ? g.team1 : g.team2
-      if (winnerName) gameResults[g.game_id] = winnerName
-    }
+    if (g.game_id && g.winner_name) gameResults[g.game_id] = g.winner_name
   }
 
   return (

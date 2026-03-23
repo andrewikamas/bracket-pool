@@ -97,6 +97,7 @@ interface DBGame {
   team1: string | null
   team2: string | null
   winner: number | null
+  winner_name: string | null
   status: string | null
   espn_event_id: string | null
 }
@@ -171,7 +172,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
   // Load all tournament_games from DB
   const { data: dbGames, error: dbError } = await supabase
     .from('tournament_games')
-    .select('game_id, round, region, team1, team2, winner, status, espn_event_id')
+    .select('game_id, round, region, team1, team2, winner, winner_name, status, espn_event_id')
 
   if (dbError || !dbGames) {
     return { error: 'Could not load tournament games from DB', detail: dbError?.message ?? 'unknown' }
@@ -195,6 +196,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
     score1: number | null
     score2: number | null
     winner: number | null
+    winner_name: string | null
   }
 
   const updates: GameUpdate[] = []
@@ -243,6 +245,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
       score1: scoreResult.score1,
       score2: scoreResult.score2,
       winner: scoreResult.winner,
+      winner_name: scoreResult.winnerName,
     })
 
     matchLog.push(`${gameId} → ESPN ${event.id} (${event.name}) [${status}]`)
@@ -253,9 +256,10 @@ async function processESPNEvents(events: ESPNEvent[]) {
   // This protects manual SQL fixes from being clobbered by re-fetches.
   // New game results (winner=null in DB) flow through normally.
 
-  const dbWinnerMap = new Map<string, number | null>()
+  // Guard: check which games already have winner_name set in DB
+  const dbWinnerNameMap = new Map<string, string | null>()
   for (const g of dbGames) {
-    dbWinnerMap.set(g.game_id, g.winner)
+    dbWinnerNameMap.set(g.game_id, (g as any).winner_name ?? null)
   }
 
   let updatedCount = 0
@@ -263,7 +267,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
   const updateErrors: string[] = []
 
   for (const u of updates) {
-    const existingWinner = dbWinnerMap.get(u.game_id)
+    const existingWinnerName = dbWinnerNameMap.get(u.game_id)
 
     const payload: Record<string, unknown> = {
       espn_event_id: u.espn_event_id,
@@ -273,15 +277,16 @@ async function processESPNEvents(events: ESPNEvent[]) {
       updated_at: new Date().toISOString(),
     }
 
-    if (existingWinner != null) {
-      // DB already has a winner — only update metadata, protect existing result
-      matchLog.push(`${u.game_id}: winner already set (${existingWinner}) — metadata only`)
+    if (existingWinnerName) {
+      // DB already has a winner_name — protect it, only update metadata
+      matchLog.push(`${u.game_id}: winner_name already set (${existingWinnerName}) — metadata only`)
     } else {
-      // No winner yet — write scores, status, and winner
+      // No winner yet — write scores, status, winner, and winner_name
       payload.status = u.status
       payload.score1 = u.score1
       payload.score2 = u.score2
       if (u.winner !== null) payload.winner = u.winner
+      if (u.winner_name) payload.winner_name = u.winner_name
     }
 
     const { error } = await supabase
@@ -299,18 +304,17 @@ async function processESPNEvents(events: ESPNEvent[]) {
   }
 
   // ── Propagate ALL completed game winners → next round team slots ────────
+  //    Uses winner_name (the canonical team name) — no more 1/2 slot math
 
   const { data: completedGames } = await supabase
     .from('tournament_games')
-    .select('game_id, round, team1, team2, winner')
-    .not('winner', 'is', null)
+    .select('game_id, winner_name')
+    .not('winner_name', 'is', null)
 
   let propagated = 0
 
   for (const game of completedGames ?? []) {
-    if (!game.winner) continue
-    const winnerName = game.winner === 1 ? game.team1 : game.team2
-    if (!winnerName) continue
+    if (!game.winner_name) continue
 
     const next = NEXT_GAME_MAP[game.game_id]
     if (!next) continue
@@ -319,7 +323,7 @@ async function processESPNEvents(events: ESPNEvent[]) {
 
     const { error } = await supabase
       .from('tournament_games')
-      .update({ [field]: winnerName })
+      .update({ [field]: game.winner_name })
       .eq('game_id', next.nextGameId)
       .is(field, null)
 
