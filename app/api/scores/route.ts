@@ -211,8 +211,30 @@ async function processESPNEvents(events: ESPNEvent[]) {
     eventIdIndex.set(event.id, gameId)
 
     const dbGame = dbGames.find(g => g.game_id === gameId)
-    const scoreResult = getScoresFromEvent(event, gameId, dbGame?.team1, dbGame?.team2)
     const status = getStatusFromEvent(event)
+
+    // ── Early exit for completed games ────────────────────────────────────
+    // ESPN recycles event IDs across rounds — e.g. the E1 event (Duke vs Siena)
+    // becomes the S16 event (Duke vs UConn) after R64 ends. Attempting to match
+    // R64 team names against the recycled event produces false warnings.
+    // Since the game is already resolved, just update metadata and move on.
+    if (dbGame?.winner_name) {
+      const { error } = await supabase
+        .from('tournament_games')
+        .update({
+          espn_event_id: event.id,
+          tv: getTVFromEvent(event),
+          venue: getVenueFromEvent(event),
+          game_time: getGameTimeFromEvent(event),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', gameId)
+      if (error) console.error(`Metadata update failed for ${gameId}:`, error)
+      matchLog.push(`${gameId}: already completed (${dbGame.winner_name}) — metadata only, skipped score extraction`)
+      continue
+    }
+
+    const scoreResult = getScoresFromEvent(event, gameId, dbGame?.team1, dbGame?.team2)
 
     if (scoreResult.warning) {
       warnings.push(scoreResult.warning)
