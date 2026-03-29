@@ -235,13 +235,49 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
     if (f1Winner && f1Winner !== r32Winner) eliminatedTeams.add(f1Winner);
     if (f2Winner && f2Winner !== r32Winner) eliminatedTeams.add(f2Winner);
   }
-  // S16+ losers: any game result where we can identify the loser
-  for (const [gameId, winner] of Object.entries(gameResults)) {
-    if (gameId.match(/R[2-3]G/) || gameId === 'FF1' || gameId === 'FF2' || gameId === 'CHAMP') {
-      // We know the winner — anyone who was in this game and isn't the winner is eliminated
-      // But we need both teams. Check if either feeder's winner isn't this winner.
-      // Simplified: if a team WAS a winner of a previous round but lost here, they're eliminated
-    }
+  // S16 losers: feeder is the R32 game winner
+  const S16_FEEDERS = {
+    'SR2G0':['SR1G0','SR1G1'], 'SR2G1':['SR1G2','SR1G3'],
+    'ER2G0':['ER1G0','ER1G1'], 'ER2G1':['ER1G2','ER1G3'],
+    'WR2G0':['WR1G0','WR1G1'], 'WR2G1':['WR1G2','WR1G3'],
+    'MR2G0':['MR1G0','MR1G1'], 'MR2G1':['MR1G2','MR1G3'],
+  };
+  for (const [s16Id, [f1, f2]] of Object.entries(S16_FEEDERS)) {
+    const s16Winner = gameResults[s16Id];
+    if (!s16Winner) continue;
+    const f1Winner = gameResults[f1];
+    const f2Winner = gameResults[f2];
+    if (f1Winner && f1Winner !== s16Winner) eliminatedTeams.add(f1Winner);
+    if (f2Winner && f2Winner !== s16Winner) eliminatedTeams.add(f2Winner);
+  }
+  // E8 losers: feeder is the S16 game winner
+  const E8_FEEDERS = {
+    'SR3G0':['SR2G0','SR2G1'], 'ER3G0':['ER2G0','ER2G1'],
+    'WR3G0':['WR2G0','WR2G1'], 'MR3G0':['MR2G0','MR2G1'],
+  };
+  for (const [e8Id, [f1, f2]] of Object.entries(E8_FEEDERS)) {
+    const e8Winner = gameResults[e8Id];
+    if (!e8Winner) continue;
+    const f1Winner = gameResults[f1];
+    const f2Winner = gameResults[f2];
+    if (f1Winner && f1Winner !== e8Winner) eliminatedTeams.add(f1Winner);
+    if (f2Winner && f2Winner !== e8Winner) eliminatedTeams.add(f2Winner);
+  }
+  // FF losers
+  if (gameResults['FF1']) {
+    const sr = gameResults['SR3G0'], er = gameResults['ER3G0'];
+    if (sr && sr !== gameResults['FF1']) eliminatedTeams.add(sr);
+    if (er && er !== gameResults['FF1']) eliminatedTeams.add(er);
+  }
+  if (gameResults['FF2']) {
+    const wr = gameResults['WR3G0'], mr = gameResults['MR3G0'];
+    if (wr && wr !== gameResults['FF2']) eliminatedTeams.add(wr);
+    if (mr && mr !== gameResults['FF2']) eliminatedTeams.add(mr);
+  }
+  // Championship loser
+  if (gameResults['CHAMP']) {
+    if (gameResults['FF1'] && gameResults['FF1'] !== gameResults['CHAMP']) eliminatedTeams.add(gameResults['FF1']);
+    if (gameResults['FF2'] && gameResults['FF2'] !== gameResults['CHAMP']) eliminatedTeams.add(gameResults['FF2']);
   }
 
   // Get the ACTUAL team in a R32+ matchup position (from real game results).
@@ -790,15 +826,16 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                   if (ff2Winner) { t2 = ff2Winner; s2 = teamSeedMap[ff2Winner] ?? null; }
                 }
                 // Fall back to user's FF picks (use their picked teams, not actual results)
+                // If the picked team is eliminated, show TBD — the userPickedChamp indicator handles the rest
                 if (!t1) {
                   const ff1Pick = picks["FF1"];
                   const userFF1Team = ff1Pick === 1 ? getUserRegionWinner("South") : ff1Pick === 2 ? getUserRegionWinner("East") : null;
-                  if (userFF1Team) { t1 = userFF1Team; s1 = teamSeedMap[userFF1Team] ?? null; }
+                  if (userFF1Team && !eliminatedTeams.has(userFF1Team)) { t1 = userFF1Team; s1 = teamSeedMap[userFF1Team] ?? null; }
                 }
                 if (!t2) {
                   const ff2Pick = picks["FF2"];
                   const userFF2Team = ff2Pick === 1 ? getUserRegionWinner("West") : ff2Pick === 2 ? getUserRegionWinner("Midwest") : null;
-                  if (userFF2Team) { t2 = userFF2Team; s2 = teamSeedMap[userFF2Team] ?? null; }
+                  if (userFF2Team && !eliminatedTeams.has(userFF2Team)) { t2 = userFF2Team; s2 = teamSeedMap[userFF2Team] ?? null; }
                 }
                 // User's championship pick
                 const champPick = picks["CHAMP"];
