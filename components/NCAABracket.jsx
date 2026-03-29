@@ -399,7 +399,8 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
 
   const totalPicks = Object.keys(picks).length;
 
-  const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info, userPickedTeam }) => {
+  const Matchup = ({ gameId, team1, seed1, team2, seed2, round, compact, info, userPickedTeam, eliminatedPicks }) => {
+    // eliminatedPicks: optional array of { label: string, team: string } for per-slot eliminated indicators
     const winnerName = gameResults[gameId]; // winning team's NAME, or undefined
     const regionKey = getRegionForGame(gameId);
     const c = COLORS[regionKey] || COLORS.FinalFour;
@@ -481,7 +482,14 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
             </div>
           );
         })}
-        {locked && userPickedTeam && !pickIsAlive && (
+        {locked && eliminatedPicks && eliminatedPicks.length > 0 && (
+          <div style={{ fontSize: 10, color: "#ef4444", padding: "2px 8px", opacity: 0.7 }}>
+            {eliminatedPicks.map(ep => (
+              <div key={ep.label}>✗ {ep.label} pick: {ep.team} (eliminated)</div>
+            ))}
+          </div>
+        )}
+        {locked && (!eliminatedPicks || eliminatedPicks.length === 0) && userPickedTeam && !pickIsAlive && (
           <div style={{ fontSize: 10, color: "#ef4444", padding: "2px 8px", opacity: 0.7 }}>
             ✗ Picked: {userPickedTeam} (eliminated)
           </div>
@@ -788,6 +796,10 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 seed2={f4.east.seed}
                 info={{ date: "Sat Apr 4", time: "6:00 PM ET", tv: "TBS", venue: "Indianapolis, IN" }}
                 userPickedTeam={picks["FF1"] === 1 ? getUserRegionWinner("South") : picks["FF1"] === 2 ? getUserRegionWinner("East") : null}
+                eliminatedPicks={locked ? [
+                  ...(getUserRegionWinner("South") && eliminatedTeams.has(getUserRegionWinner("South")) && getUserRegionWinner("South") !== f4.south.team ? [{ label: "South", team: getUserRegionWinner("South") }] : []),
+                  ...(getUserRegionWinner("East") && eliminatedTeams.has(getUserRegionWinner("East")) && getUserRegionWinner("East") !== f4.east.team ? [{ label: "East", team: getUserRegionWinner("East") }] : []),
+                ] : undefined}
               />
               <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2 }}>
                 South winner vs East winner
@@ -806,6 +818,10 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                 seed2={f4.midwest.seed}
                 info={{ date: "Sat Apr 4", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }}
                 userPickedTeam={picks["FF2"] === 1 ? getUserRegionWinner("West") : picks["FF2"] === 2 ? getUserRegionWinner("Midwest") : null}
+                eliminatedPicks={locked ? [
+                  ...(getUserRegionWinner("West") && eliminatedTeams.has(getUserRegionWinner("West")) && getUserRegionWinner("West") !== f4.west.team ? [{ label: "West", team: getUserRegionWinner("West") }] : []),
+                  ...(getUserRegionWinner("Midwest") && eliminatedTeams.has(getUserRegionWinner("Midwest")) && getUserRegionWinner("Midwest") !== f4.midwest.team ? [{ label: "Midwest", team: getUserRegionWinner("Midwest") }] : []),
+                ] : undefined}
               />
               <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 2 }}>
                 West winner vs Midwest winner
@@ -847,7 +863,23 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                   const ff2Pick = picks["FF2"];
                   userPickedChamp = ff2Pick === 1 ? getUserRegionWinner("West") : ff2Pick === 2 ? getUserRegionWinner("Midwest") : null;
                 }
-                return <Matchup gameId="CHAMP" team1={t1} seed1={s1} team2={t2} seed2={s2} info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }} userPickedTeam={userPickedChamp} />;
+                // Per-slot eliminated picks for Championship
+                const champEliminated = [];
+                if (locked) {
+                  const ff1P = picks["FF1"];
+                  const champSlot1Team = ff1P === 1 ? getUserRegionWinner("South") : ff1P === 2 ? getUserRegionWinner("East") : null;
+                  const ff1Label = ff1P === 1 ? "South" : ff1P === 2 ? "East" : null;
+                  if (champSlot1Team && eliminatedTeams.has(champSlot1Team) && champSlot1Team !== t1) {
+                    champEliminated.push({ label: ff1Label, team: champSlot1Team });
+                  }
+                  const ff2P = picks["FF2"];
+                  const champSlot2Team = ff2P === 1 ? getUserRegionWinner("West") : ff2P === 2 ? getUserRegionWinner("Midwest") : null;
+                  const ff2Label = ff2P === 1 ? "West" : ff2P === 2 ? "Midwest" : null;
+                  if (champSlot2Team && eliminatedTeams.has(champSlot2Team) && champSlot2Team !== t2) {
+                    champEliminated.push({ label: ff2Label, team: champSlot2Team });
+                  }
+                }
+                return <Matchup gameId="CHAMP" team1={t1} seed1={s1} team2={t2} seed2={s2} info={{ date: "Mon Apr 6", time: "8:30 PM ET", tv: "TBS", venue: "Indianapolis, IN" }} userPickedTeam={userPickedChamp} eliminatedPicks={locked && champEliminated.length > 0 ? champEliminated : undefined} />;
               })()}
               {/* Tiebreaker */}
               <div style={{ marginTop: 8 }}>
