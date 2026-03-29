@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import TVScheduleButton from '@/components/TVScheduleButton'
 import AICommentary from '@/components/AICommentary'
-import ChampionBadge from '@/components/ChampionBadge'
 import RefreshScoresButton from '@/components/RefreshScoresButton'
+import LeaderboardTable from '@/components/LeaderboardTable'
 
 export const dynamic = 'force-dynamic'
 
@@ -134,6 +134,12 @@ function resolvePickedTeam(
 }
 
 
+interface RoundBreakdown {
+  correct: number
+  wrong: number
+  points: number
+}
+
 interface LeaderboardEntry {
   bracket_id: string
   bracket_name: string
@@ -143,9 +149,10 @@ interface LeaderboardEntry {
   picks_made: number
   tiebreaker: number | null
   champion_pick: string | null
+  breakdown: RoundBreakdown[]
 }
 
-async function getLeaderboard(): Promise<LeaderboardEntry[]> {
+async function getLeaderboard(): Promise<{ entries: LeaderboardEntry[]; completedPerRound: Record<number, number> }> {
   const supabase = await createClient()
 
   const [
@@ -195,6 +202,12 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const pickCountMap = new Map((pickCounts ?? []).map((p: any) => [p.bracket_id, p.pick_count as number]))
   const champPicks = new Map((champPicksData ?? []).map((p: any) => [p.bracket_id, p.winner_choice as number]))
 
+  // Count completed games per round (same for all brackets)
+  const completedPerRound: Record<number, number> = {}
+  for (const g of completedGames) {
+    completedPerRound[g.round] = (completedPerRound[g.round] ?? 0) + 1
+  }
+
   // Build per-bracket pick maps
   const bracketPickMaps = new Map<string, Record<string, number>>()
   for (const p of allPicks) {
@@ -205,14 +218,23 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const entries: LeaderboardEntry[] = (brackets ?? []).map((b) => {
     const pickMap = bracketPickMaps.get(b.id) ?? {}
 
+    // Per-round breakdown: correct, wrong, points
+    const breakdown: RoundBreakdown[] = Array.from({ length: 6 }, () => ({ correct: 0, wrong: 0, points: 0 }))
+
     // Current score — compare picked team NAME against winner_name
     let score = 0
     for (const [gameId] of Object.entries(pickMap)) {
       const result = results.get(gameId)
       if (!result) continue
+      const round = result.round
       const pickedTeam = resolvePickedTeam(pickMap, gameId)
       if (pickedTeam && pickedTeam === result.winner_name) {
-        score += scoring[result.round.toString()] ?? 0
+        const pts = scoring[round.toString()] ?? 0
+        score += pts
+        breakdown[round].correct++
+        breakdown[round].points += pts
+      } else {
+        breakdown[round].wrong++
       }
     }
 
@@ -250,19 +272,20 @@ async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       picks_made: pickCountMap.get(b.id) ?? 0,
       tiebreaker: b.tiebreaker,
       champion_pick: championPick,
+      breakdown,
     }
   })
 
-  return entries.sort((a, b) => {
+  const sorted = entries.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
     return (a.tiebreaker ?? 999) - (b.tiebreaker ?? 999)
   })
+
+  return { entries: sorted, completedPerRound }
 }
 
 export default async function LeaderboardPage() {
-  const leaderboard = await getLeaderboard()
-  const hasChampPicks = leaderboard.some((e) => e.champion_pick)
-  const anyScored = leaderboard.some((e) => e.score > 0)
+  const { entries: leaderboard, completedPerRound } = await getLeaderboard()
 
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto', padding: '24px 20px' }}>
@@ -302,80 +325,7 @@ export default async function LeaderboardPage() {
       ) : (
         <>
           <AICommentary leaderboard={leaderboard} />
-
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                {[
-                  '#',
-                  'Bracket',
-                  'Player',
-                  hasChampPicks ? '🏆 Pick' : null,
-                  'Score',
-                  anyScored ? 'Max' : null,
-                ]
-                  .filter(Boolean)
-                  .map((h, i, arr) => (
-                    <th
-                      key={h as string}
-                      style={{
-                        padding: '8px 12px',
-                        fontWeight: 600,
-                        color: '#374151',
-                        textAlign: i >= arr.length - 2 ? 'right' : 'left',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-              </tr>
-            </thead>
-            <tbody>
-              {leaderboard.map((entry, i) => {
-                // Tie-aware ranking: same score = same place, next skips
-                const rank = i === 0 ? 1
-                  : leaderboard[i].score === leaderboard[i - 1].score
-                    ? (leaderboard.findIndex(e => e.score === entry.score) + 1)
-                    : i + 1
-
-                return (
-                  <tr key={entry.bracket_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '11px 12px', color: '#9ca3af', fontWeight: 500, width: 32 }}>{rank}</td>
-                    <td style={{ padding: '11px 12px' }}>
-                      <a
-                        href={`/bracket/${entry.bracket_id}`}
-                        style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
-                      >
-                        {entry.bracket_name}
-                      </a>
-                    </td>
-                    <td style={{ padding: '11px 12px', color: '#374151' }}>{entry.display_name}</td>
-                    {hasChampPicks && (
-                      <td style={{ padding: '11px 12px', color: '#6b7280', fontSize: 13 }}>
-                        {entry.champion_pick
-                          ? <ChampionBadge champion={entry.champion_pick} />
-                          : <span style={{ color: '#d1d5db' }}>—</span>}
-                      </td>
-                    )}
-                    <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, fontSize: 15 }}>
-                      {entry.score}
-                    </td>
-                    {anyScored && (
-                      <td style={{ padding: '11px 12px', textAlign: 'right' }}>
-                        <span
-                          title="Max points still achievable"
-                          style={{ color: '#9ca3af', fontSize: 13 }}
-                        >
-                          {entry.max_possible}
-                        </span>
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <LeaderboardTable leaderboard={leaderboard} completedPerRound={completedPerRound} />
         </>
       )}
 
