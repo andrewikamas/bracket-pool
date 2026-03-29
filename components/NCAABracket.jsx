@@ -789,7 +789,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                   if (ff1Winner) { t1 = ff1Winner; s1 = teamSeedMap[ff1Winner] ?? null; }
                   if (ff2Winner) { t2 = ff2Winner; s2 = teamSeedMap[ff2Winner] ?? null; }
                 }
-                // Fall back to user's FF picks
                 // Fall back to user's FF picks (use their picked teams, not actual results)
                 if (!t1) {
                   const ff1Pick = picks["FF1"];
@@ -800,13 +799,6 @@ export default function NCAABracket({ initialPicks = {}, initialTiebreaker = "",
                   const ff2Pick = picks["FF2"];
                   const userFF2Team = ff2Pick === 1 ? getUserRegionWinner("West") : ff2Pick === 2 ? getUserRegionWinner("Midwest") : null;
                   if (userFF2Team) { t2 = userFF2Team; s2 = teamSeedMap[userFF2Team] ?? null; }
-                }
-                  else if (ff1Pick === 2) { t1 = f4.east.team; s1 = f4.east.seed; }
-                }
-                if (!t2) {
-                  const ff2Pick = picks["FF2"];
-                  if (ff2Pick === 1) { t2 = f4.west.team; s2 = f4.west.seed; }
-                  else if (ff2Pick === 2) { t2 = f4.midwest.team; s2 = f4.midwest.seed; }
                 }
                 // User's championship pick
                 const champPick = picks["CHAMP"];
